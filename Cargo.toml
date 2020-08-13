@@ -1,9 +1,15 @@
 [package]
-name = "latest-maven-version"
+name = "lenient-version-parser"
 version = "0.1.0"
-authors = ["Paul Horn <paul.horn@neotechnology.com>"]
+description = "Lenient parser for Semantic Version numbers."
+authors = ["Paul Horn <developer@knutwalker.de>"]
 edition = "2018"
+license = "MIT OR Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+semver = "0.10.0"
+
+[dev-dependencies]
+test-case = "1.0.0"
