@@ -59,7 +59,7 @@ pub(crate) fn parse_version(input: &str) -> Result<Version, Error<'_>> {
 pub(crate) struct Error<'input> {
     input: &'input str,
     span: Span,
-    error: ErrorType<'input>,
+    error: ErrorType,
 }
 
 impl Display for Error<'_> {
@@ -68,7 +68,7 @@ impl Display for Error<'_> {
             ErrorType::Missing(segment) => {
                 write!(f, "Could not parse the {} identifier: No input", segment)?;
             }
-            ErrorType::NotANumber(part, _) => {
+            ErrorType::NotANumber(part) => {
                 write!(
                     f,
                     "Could not parse the {} identifier: `{}` is not a number",
@@ -76,7 +76,7 @@ impl Display for Error<'_> {
                     self.span.show(self.input)
                 )?;
             }
-            ErrorType::Unexpected(_) => {
+            ErrorType::Unexpected => {
                 write!(f, "Unexpected `{}`", self.span.show(self.input))?;
             }
         };
@@ -98,13 +98,13 @@ impl Display for Error<'_> {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-struct ErrorSpan<'input> {
-    error: ErrorType<'input>,
+struct ErrorSpan {
+    error: ErrorType,
     span: Span,
 }
 
-impl<'input> ErrorSpan<'input> {
-    fn new(error: ErrorType<'input>, span: Span) -> Self {
+impl ErrorSpan {
+    fn new(error: ErrorType, span: Span) -> Self {
         Self { error, span }
     }
 
@@ -129,19 +129,19 @@ impl<'input> ErrorSpan<'input> {
         }
     }
 
-    fn unexpected(token: Token<'input>, span: Span) -> Self {
+    fn unexpected(span: Span) -> Self {
         Self {
-            error: ErrorType::Unexpected(token),
+            error: ErrorType::Unexpected,
             span,
         }
     }
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum ErrorType<'input> {
+enum ErrorType {
     Missing(Segment),
-    NotANumber(Part, Token<'input>),
-    Unexpected(Token<'input>),
+    NotANumber(Part),
+    Unexpected,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -224,7 +224,7 @@ where
     }
 }
 
-fn parse_into_version<'input, I>(tokens: I) -> Result<Version, ErrorSpan<'input>>
+fn parse_into_version<'input, I>(tokens: I) -> Result<Version, ErrorSpan>
 where
     I: IntoIterator<Item = TokenSpan<'input>>,
 {
@@ -309,8 +309,8 @@ where
                         return Err(ErrorSpan::missing_pre(tokens.span))
                     }
                     // any other token is invalid
-                    Some(token) => {
-                        return Err(ErrorSpan::unexpected(token, tokens.span));
+                    Some(_) => {
+                        return Err(ErrorSpan::unexpected(tokens.span));
                     }
                 }
                 state = match tokens.next() {
@@ -337,8 +337,8 @@ where
                             return Err(ErrorSpan::missing_build(tokens.span));
                         }
                         // any other token is invalid
-                        Some(token) => {
-                            return Err(ErrorSpan::unexpected(token, tokens.span));
+                        Some(_) => {
+                            return Err(ErrorSpan::unexpected(tokens.span));
                         }
                     }
                     match tokens.next() {
@@ -354,32 +354,25 @@ where
     }
 }
 
-fn parse_number<'input>(
-    token: Token<'input>,
-    part: Part,
-    span: Span,
-) -> Result<u64, ErrorSpan<'input>> {
+fn parse_number<'input>(token: Token<'input>, part: Part, span: Span) -> Result<u64, ErrorSpan> {
     parse_number_inner(token, part).map_err(|e| ErrorSpan::new(e, span))
 }
 
-fn parse_number_inner<'input>(token: Token<'input>, part: Part) -> Result<u64, ErrorType<'input>> {
+fn parse_number_inner<'input>(token: Token<'input>, part: Part) -> Result<u64, ErrorType> {
     match token {
         Token::Number(n) => Ok(n),
-        token => Err(ErrorType::NotANumber(part, token)),
+        _ => Err(ErrorType::NotANumber(part)),
     }
 }
 
-fn finish_tokens<'input, I, T>(
-    mut tokens: Tokens<'input, I>,
-    value: T,
-) -> Result<T, ErrorSpan<'input>>
+fn finish_tokens<'input, I, T>(mut tokens: Tokens<'input, I>, value: T) -> Result<T, ErrorSpan>
 where
     I: Iterator<Item = TokenSpan<'input>>,
 {
     while let Some(token) = tokens.next() {
         match token {
             Token::Whitespace => {}
-            token => return Err(ErrorSpan::unexpected(token, tokens.span)),
+            _ => return Err(ErrorSpan::unexpected(tokens.span)),
         }
     }
     Ok(value)
@@ -847,38 +840,23 @@ mod tests {
         );
         assert_eq!(
             parse_version("a.b.c"),
-            Err(ErrorSpan::new(
-                NotANumber(Part::Major, Token::Alpha("a")),
-                Span::new(0, 1)
-            ))
+            Err(ErrorSpan::new(NotANumber(Part::Major), Span::new(0, 1)))
         );
         assert_eq!(
             parse_version("1.+.0"),
-            Err(ErrorSpan::new(
-                NotANumber(Part::Minor, Token::Plus),
-                Span::new(2, 3)
-            ))
+            Err(ErrorSpan::new(NotANumber(Part::Minor), Span::new(2, 3)))
         );
         assert_eq!(
             parse_version("1.2.."),
-            Err(ErrorSpan::new(
-                NotANumber(Part::Patch, Token::Dot),
-                Span::new(4, 5)
-            ))
+            Err(ErrorSpan::new(NotANumber(Part::Patch), Span::new(4, 5)))
         );
         assert_eq!(
             parse_version("123456789012345678901234567890"),
-            Err(ErrorSpan::new(
-                NotANumber(Part::Major, Token::Alpha("123456789012345678901234567890")),
-                Span::new(0, 30)
-            ))
+            Err(ErrorSpan::new(NotANumber(Part::Major), Span::new(0, 30)))
         );
         assert_eq!(
             parse_version("1.2.3 abc"),
-            Err(ErrorSpan::new(
-                Unexpected(Token::Alpha("abc")),
-                Span::new(6, 9)
-            ))
+            Err(ErrorSpan::new(Unexpected, Span::new(6, 9)))
         );
     }
 
@@ -1107,30 +1085,27 @@ mod tests {
         );
         assert_eq!(
             parse_number_inner(Token::Dot, Part::Patch),
-            Err(ErrorType::NotANumber(Part::Patch, Token::Dot))
+            Err(ErrorType::NotANumber(Part::Patch))
         );
         assert_eq!(
             parse_number_inner(Token::Plus, Part::Patch),
-            Err(ErrorType::NotANumber(Part::Patch, Token::Plus))
+            Err(ErrorType::NotANumber(Part::Patch))
         );
         assert_eq!(
             parse_number_inner(Token::Hyphen, Part::Patch),
-            Err(ErrorType::NotANumber(Part::Patch, Token::Hyphen))
+            Err(ErrorType::NotANumber(Part::Patch))
         );
         assert_eq!(
             parse_number_inner(Token::Whitespace, Part::Patch),
-            Err(ErrorType::NotANumber(Part::Patch, Token::Whitespace))
+            Err(ErrorType::NotANumber(Part::Patch))
         );
         assert_eq!(
             parse_number_inner(Token::Alpha("foo"), Part::Patch),
-            Err(ErrorType::NotANumber(Part::Patch, Token::Alpha("foo")))
+            Err(ErrorType::NotANumber(Part::Patch))
         );
         assert_eq!(
             parse_number_inner(Token::UnexpectedChar('🙈', 42), Part::Patch),
-            Err(ErrorType::NotANumber(
-                Part::Patch,
-                Token::UnexpectedChar('🙈', 42)
-            ))
+            Err(ErrorType::NotANumber(Part::Patch))
         );
     }
 
