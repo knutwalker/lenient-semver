@@ -525,428 +525,200 @@ impl<'input> Iterator for Lexer<'input> {
 mod tests {
     use super::*;
     use semver::Identifier;
+    use test_case::test_case;
 
-    #[test]
-    fn test_parse() {
-        assert_eq!(parse_version("1"), Ok(Version::new(1, 0, 0)));
-        assert_eq!(parse_version("1.2"), Ok(Version::new(1, 2, 0)));
-        assert_eq!(parse_version("1.2.3"), Ok(Version::new(1, 2, 3)));
-        assert_eq!(parse_version("  1.2.3  "), Ok(Version::new(1, 2, 3)));
-
-        assert_eq!(
-            parse_version("1.2.3-alpha1"),
-            Ok(Version {
-                major: 1,
-                minor: 2,
-                patch: 3,
-                pre: vec![Identifier::AlphaNumeric(String::from("alpha1"))],
-                build: Vec::new(),
-            })
-        );
-        assert_eq!(
-            parse_version("  1.2.3-alpha1  "),
-            Ok(Version {
-                major: 1,
-                minor: 2,
-                patch: 3,
-                pre: vec![Identifier::AlphaNumeric(String::from("alpha1"))],
-                build: Vec::new(),
-            })
-        );
-        assert_eq!(
-            parse_version("1.2.3+build5"),
-            Ok(Version {
-                major: 1,
-                minor: 2,
-                patch: 3,
-                pre: Vec::new(),
-                build: vec![Identifier::AlphaNumeric(String::from("build5"))],
-            })
-        );
-        assert_eq!(
-            parse_version("  1.2.3+build5  "),
-            Ok(Version {
-                major: 1,
-                minor: 2,
-                patch: 3,
-                pre: Vec::new(),
-                build: vec![Identifier::AlphaNumeric(String::from("build5"))],
-            })
-        );
-        assert_eq!(
-            parse_version("1.2.3-alpha1+build5"),
-            Ok(Version {
-                major: 1,
-                minor: 2,
-                patch: 3,
-                pre: vec![Identifier::AlphaNumeric(String::from("alpha1"))],
-                build: vec![Identifier::AlphaNumeric(String::from("build5"))],
-            })
-        );
-        assert_eq!(
-            parse_version("  1.2.3-alpha1+build5  "),
-            Ok(Version {
-                major: 1,
-                minor: 2,
-                patch: 3,
-                pre: vec![Identifier::AlphaNumeric(String::from("alpha1"))],
-                build: vec![Identifier::AlphaNumeric(String::from("build5"))],
-            })
-        );
-        assert_eq!(
-            parse_version("1.2.3-1.alpha1.9+build5.7.3aedf  "),
-            Ok(Version {
-                major: 1,
-                minor: 2,
-                patch: 3,
-                pre: vec![
-                    Identifier::Numeric(1),
-                    Identifier::AlphaNumeric(String::from("alpha1")),
-                    Identifier::Numeric(9),
-                ],
-                build: vec![
-                    Identifier::AlphaNumeric(String::from("build5")),
-                    Identifier::Numeric(7),
-                    Identifier::AlphaNumeric(String::from("3aedf")),
-                ],
-            })
-        );
-        assert_eq!(
-            parse_version("0.4.0-beta.1+0851523"),
-            Ok(Version {
-                major: 0,
-                minor: 4,
-                patch: 0,
-                pre: vec![
-                    Identifier::AlphaNumeric(String::from("beta")),
-                    Identifier::Numeric(1),
-                ],
-                build: vec![Identifier::AlphaNumeric(String::from("0851523"))],
-            })
-        );
-
-        assert_eq!(
-            parse_version("1.4.0-alpha01"),
-            Ok(Version {
-                major: 1,
-                minor: 4,
-                patch: 0,
-                pre: vec![Identifier::AlphaNumeric(String::from("alpha01"))],
-                build: Vec::new(),
-            })
-        );
-
-        assert_eq!(
-            parse_version("1.5.1-drop02"),
-            Ok(Version {
-                major: 1,
-                minor: 5,
-                patch: 1,
-                pre: vec![Identifier::AlphaNumeric(String::from("drop02"))],
-                build: Vec::new(),
-            })
-        );
-        assert_eq!(
-            parse_version("1.5-drop02"),
-            Ok(Version {
-                major: 1,
-                minor: 5,
-                patch: 0,
-                pre: vec![Identifier::AlphaNumeric(String::from("drop02"))],
-                build: Vec::new(),
-            })
-        );
-
-        assert_eq!(
-            parse_version("2.6.8-rc1"),
-            Ok(Version {
-                major: 2,
-                minor: 6,
-                patch: 8,
-                pre: vec![Identifier::AlphaNumeric(String::from("rc1"))],
-                build: Vec::new(),
-            })
-        );
-
-        assert_eq!(
-            parse_version("3.1.0-M13-beta3"),
-            Ok(Version {
-                major: 3,
-                minor: 1,
-                patch: 0,
-                pre: vec![
-                    Identifier::AlphaNumeric(String::from("M13")),
-                    Identifier::AlphaNumeric(String::from("beta3")),
-                ],
-                build: Vec::new(),
-            })
-        );
-
-        assert_eq!(
-            parse_version("1.9.RC2"),
-            Ok(Version {
-                major: 1,
-                minor: 9,
-                patch: 0,
-                pre: vec![Identifier::AlphaNumeric(String::from("RC2")),],
-                build: Vec::new(),
-            })
-        );
-
-        assert_eq!(
-            parse_version("1.7.M05"),
-            Ok(Version {
-                major: 1,
-                minor: 7,
-                patch: 0,
-                pre: vec![Identifier::AlphaNumeric(String::from("M05")),],
-                build: Vec::new(),
-            })
-        );
-
-        assert_eq!(
-            parse_version("2.Final"),
-            Ok(Version {
-                major: 2,
-                minor: 0,
-                patch: 0,
-                pre: Vec::new(),
-                build: vec![Identifier::AlphaNumeric(String::from("Final"))],
-            })
-        );
-        assert_eq!(
-            parse_version("2.7.Final"),
-            Ok(Version {
-                major: 2,
-                minor: 7,
-                patch: 0,
-                pre: Vec::new(),
-                build: vec![Identifier::AlphaNumeric(String::from("Final"))],
-            })
-        );
-        assert_eq!(
-            parse_version("2.7.3.Final"),
-            Ok(Version {
-                major: 2,
-                minor: 7,
-                patch: 3,
-                pre: Vec::new(),
-                build: vec![Identifier::AlphaNumeric(String::from("Final"))],
-            })
-        );
-        assert_eq!(
-            parse_version("2.Release"),
-            Ok(Version {
-                major: 2,
-                minor: 0,
-                patch: 0,
-                pre: Vec::new(),
-                build: vec![Identifier::AlphaNumeric(String::from("Release"))],
-            })
-        );
-        assert_eq!(
-            parse_version("2.7.Release"),
-            Ok(Version {
-                major: 2,
-                minor: 7,
-                patch: 0,
-                pre: Vec::new(),
-                build: vec![Identifier::AlphaNumeric(String::from("Release"))],
-            })
-        );
-        assert_eq!(
-            parse_version("2.7.3.Release"),
-            Ok(Version {
-                major: 2,
-                minor: 7,
-                patch: 3,
-                pre: Vec::new(),
-                build: vec![Identifier::AlphaNumeric(String::from("Release"))],
-            })
-        );
-
-        assert_eq!(
-            parse_version("7.2.0+28-2f9fb552"),
-            Ok(Version {
-                major: 7,
-                minor: 2,
-                patch: 0,
-                pre: Vec::new(),
-                build: vec![
-                    Identifier::Numeric(28),
-                    Identifier::AlphaNumeric(String::from("2f9fb552"))
-                ],
-            })
-        );
-
-        assert_eq!(
-            parse_version("5.9.0.202009080501-r"),
-            Ok(Version {
-                major: 5,
-                minor: 9,
-                patch: 0,
-                build: Vec::new(),
-                pre: vec![
-                    Identifier::Numeric(202009080501),
-                    Identifier::AlphaNumeric(String::from("r"))
-                ],
-                // pre: Vec::new(),
-                // build: vec![
-                //     Identifier::Numeric(202009080501),
-                //     Identifier::AlphaNumeric(String::from("r"))
-                // ],
-            })
-        );
-
-        assert_eq!(parse_version("2020.4.9"), Ok(Version::new(2020, 4, 9)));
-        assert_eq!(parse_version("2020.04.09"), Ok(Version::new(2020, 4, 9)));
-        assert_eq!(parse_version("2020.04"), Ok(Version::new(2020, 4, 0)));
-
-        assert_eq!(parse_version("2020.04"), Ok(Version::new(2020, 4, 0)));
+    trait IntoIdentifier {
+        fn into_itentifier(self) -> Identifier;
     }
 
-    #[test]
-    fn parse_error() {
-        fn parse_version(input: &str) -> Result<Version, ErrorSpan> {
-            parse_into_version(lex(input))
+    impl IntoIdentifier for &str {
+        fn into_itentifier(self) -> Identifier {
+            Identifier::AlphaNumeric(self.into())
         }
-
-        use ErrorType::*;
-
-        assert_eq!(
-            parse_version(""),
-            Err(ErrorSpan::new(
-                Missing(Segment::Part(Part::Major)),
-                Span::new(0, 0)
-            ))
-        );
-        assert_eq!(
-            parse_version("  "),
-            Err(ErrorSpan::new(
-                Missing(Segment::Part(Part::Major)),
-                Span::new(0, 2)
-            ))
-        );
-        assert_eq!(
-            parse_version("1.2.3-"),
-            Err(ErrorSpan::new(
-                Missing(Segment::PreRelease),
-                Span::new(5, 6)
-            ))
-        );
-        assert_eq!(
-            parse_version("1.2.3+"),
-            Err(ErrorSpan::new(Missing(Segment::Build), Span::new(5, 6)))
-        );
-        assert_eq!(
-            parse_version("a.b.c"),
-            Err(ErrorSpan::new(NotANumber(Part::Major), Span::new(0, 1)))
-        );
-        assert_eq!(
-            parse_version("1.+.0"),
-            Err(ErrorSpan::new(NotANumber(Part::Minor), Span::new(2, 3)))
-        );
-        assert_eq!(
-            parse_version("1.2.."),
-            Err(ErrorSpan::new(NotANumber(Part::Patch), Span::new(4, 5)))
-        );
-        assert_eq!(
-            parse_version("123456789012345678901234567890"),
-            Err(ErrorSpan::new(NotANumber(Part::Major), Span::new(0, 30)))
-        );
-        assert_eq!(
-            parse_version("1.2.3 abc"),
-            Err(ErrorSpan::new(Unexpected, Span::new(6, 9)))
-        );
     }
 
-    #[test]
-    fn parse_error_string() {
-        fn parsed_version(input: &str) -> String {
-            format!("{:#}", parse_version(input).unwrap_err())
+    impl IntoIdentifier for u64 {
+        fn into_itentifier(self) -> Identifier {
+            Identifier::Numeric(self)
         }
+    }
 
-        assert_eq!(
-            parsed_version(""),
-            String::from(
-                r#"Could not parse the major identifier: No input
+    macro_rules! vers {
+        ($major:literal . $minor:literal . $patch:literal) => {
+            Version {
+                major: $major,
+                minor: $minor,
+                patch: $patch,
+                pre: Vec::new(),
+                build: Vec::new(),
+            }
+        };
+
+        ($major:literal . $minor:literal . $patch:literal - $( $pre:literal )-+ ) => {
+            Version {
+                major: $major,
+                minor: $minor,
+                patch: $patch,
+                pre: vec![ $( $pre.into_itentifier(), )* ],
+                build: Vec::new(),
+            }
+        };
+
+        ($major:literal . $minor:literal . $patch:literal + $( $build:literal )-+ ) => {
+            Version {
+                major: $major,
+                minor: $minor,
+                patch: $patch,
+                pre: Vec::new(),
+                build: vec![ $( $build.into_itentifier(), )* ],
+            }
+        };
+
+        ($major:literal . $minor:literal . $patch:literal pre $( $pre:literal )-+ ; build $( $build:literal )-+ ) => {
+            Version {
+                major: $major,
+                minor: $minor,
+                patch: $patch,
+                pre: vec![ $( $pre.into_itentifier(), )* ],
+                build: vec![ $( $build.into_itentifier(), )* ],
+            }
+        };
+    }
+
+    #[test_case("1" => Ok(vers!(1 . 0 . 0)); "major only")]
+    #[test_case("1.2" => Ok(vers!(1 . 2 . 0)); "major.minor only")]
+    #[test_case("1.2.3" => Ok(vers!(1 . 2 . 3)); "major.minor.patch")]
+    #[test_case("  1.2.3  " => Ok(vers!(1 . 2 . 3)); "with whitespace")]
+    fn test_simple(input: &str) -> Result<Version, Error> {
+        parse_version(input)
+    }
+
+    #[test_case("1.2.3-alpha1" => Ok(vers!(1 . 2 . 3 - "alpha1")))]
+    #[test_case("  1.2.3-alpha2  " => Ok(vers!(1 . 2 . 3 - "alpha2")))]
+    #[test_case("3.1.0-M13-beta3" => Ok(vers!(3 . 1 . 0 - "M13" - "beta3")))]
+    #[test_case("1.2.3-alpha01.drop02" => Ok(vers!(1 . 2 . 3 - "alpha01" - "drop02")))]
+    #[test_case("1.4.1-alpha01" => Ok(vers!(1 . 4 . 1 - "alpha01")))]
+    #[test_case("1.4-alpha02" => Ok(vers!(1 . 4 . 0 - "alpha02")))]
+    #[test_case("1-alpha03" => Ok(vers!(1 . 0 . 0 - "alpha03")))]
+    #[test_case("1.9.3.RC1" => Ok(vers!(1 . 9 . 3 - "RC1")))]
+    #[test_case("1.9.RC2" => Ok(vers!(1 . 9 . 0 - "RC2")))]
+    #[test_case("1.RC3" => Ok(vers!(1 . 0 . 0 - "RC3")))]
+    #[test_case("1.3.3.7" => Ok(vers!(1 . 3 . 3 - 7)))]
+    #[test_case("5.9.0.202009080501-r" => Ok(vers!(5 . 9 . 0 - 202009080501 - "r")))] // This should really be a + build
+    fn test_pre_release(input: &str) -> Result<Version, Error> {
+        parse_version(input)
+    }
+
+    #[test_case("1.2.3+build1" => Ok(vers!(1 . 2 . 3 + "build1")))]
+    #[test_case("  1.2.3+build2  " => Ok(vers!(1 . 2 . 3 + "build2")))]
+    #[test_case("3.1.0+build3-r021" => Ok(vers!(3 . 1 . 0 + "build3" - "r021")))]
+    #[test_case("1.2.3+build01.drop02" => Ok(vers!(1 . 2 . 3 + "build01" - "drop02")))]
+    #[test_case("1.4.1+build01" => Ok(vers!(1 . 4 . 1 + "build01")))]
+    #[test_case("1.4+build02" => Ok(vers!(1 . 4 . 0 + "build02")))]
+    #[test_case("1+build03" => Ok(vers!(1 . 0 . 0 + "build03")))]
+    #[test_case("7.2.0+28-2f9fb552" => Ok(vers!(7 . 2 . 0 + 28 -  "2f9fb552" )))]
+    fn test_build(input: &str) -> Result<Version, Error> {
+        parse_version(input)
+    }
+
+    #[test_case("1.2.3-alpha1+build5" => Ok(vers!(1 . 2 . 3 pre "alpha1" ; build "build5" )))]
+    #[test_case("   1.2.3-alpha2+build6   " => Ok(vers!(1 . 2 . 3 pre "alpha2" ; build "build6" )))]
+    #[test_case("1.2.3-1.alpha1.9+build5.7.3aedf  " => Ok(vers!(1 . 2 . 3 pre 1 - "alpha1" - 9 ; build "build5" - 7 - "3aedf" )))]
+    #[test_case("0.4.0-beta.1+0851523" => Ok(vers!(0 . 4 . 0 pre "beta" - 1 ; build "0851523" )))]
+    fn test_combined(input: &str) -> Result<Version, Error> {
+        parse_version(input)
+    }
+
+    #[test_case("2.7.3.Final" => Ok(vers!(2 . 7 . 3 + "Final" )); "full dot final")]
+    #[test_case("2.7.3-Final" => Ok(vers!(2 . 7 . 3 + "Final" )); "full hyphen final")]
+    #[test_case("2.7.3+Final" => Ok(vers!(2 . 7 . 3 + "Final" )); "full plus final")]
+    #[test_case("2.7.3.Release" => Ok(vers!(2 . 7 . 3 + "Release" )); "full dot release")]
+    #[test_case("2.7.3-Release" => Ok(vers!(2 . 7 . 3 + "Release" )); "full hyphen release")]
+    #[test_case("2.7.3+Release" => Ok(vers!(2 . 7 . 3 + "Release" )); "full plus release")]
+    #[test_case("2.7.Final" => Ok(vers!(2 . 7 . 0 + "Final" )); "minor dot final")]
+    #[test_case("2.7-Final" => Ok(vers!(2 . 7 . 0 + "Final" )); "minor hyphen final")]
+    #[test_case("2.7+Final" => Ok(vers!(2 . 7 . 0 + "Final" )); "minor plus final")]
+    #[test_case("2.7.Release" => Ok(vers!(2 . 7 . 0 + "Release" )); "minor dot release")]
+    #[test_case("2.7-Release" => Ok(vers!(2 . 7 . 0 + "Release" )); "minor hyphen release")]
+    #[test_case("2.7+Release" => Ok(vers!(2 . 7 . 0 + "Release" )); "minor plus release")]
+    #[test_case("2.Final" => Ok(vers!(2 . 0 . 0 + "Final" )); "major dot final")]
+    #[test_case("2-Final" => Ok(vers!(2 . 0 . 0 + "Final" )); "major hyphen final")]
+    #[test_case("2+Final" => Ok(vers!(2 . 0 . 0 + "Final" )); "major plus final")]
+    #[test_case("2.Release" => Ok(vers!(2 . 0 . 0 + "Release" )); "major dot release")]
+    #[test_case("2-Release" => Ok(vers!(2 . 0 . 0 + "Release" )); "major hyphen release")]
+    #[test_case("2+Release" => Ok(vers!(2 . 0 . 0 + "Release" )); "major plus release")]
+    fn test_with_release_identifier(input: &str) -> Result<Version, Error> {
+        parse_version(input)
+    }
+
+    #[test_case("2020.4.9" => Ok(vers!(2020 . 4 . 9)))]
+    #[test_case("2020.04.09" => Ok(vers!(2020 . 4 . 9)))]
+    #[test_case("2020.4" => Ok(vers!(2020 . 4 . 0)))]
+    #[test_case("2020.04" => Ok(vers!(2020 . 4 . 0)))]
+    fn test_date_versions(input: &str) -> Result<Version, Error> {
+        parse_version(input)
+    }
+
+    #[test_case("" => Err(ErrorSpan::new(ErrorType::Missing(Segment::Part(Part::Major)), Span::new(0, 0))))]
+    #[test_case("  " => Err(ErrorSpan::new(ErrorType::Missing(Segment::Part(Part::Major)), Span::new(0, 2))))]
+    #[test_case("1. " => Err(ErrorSpan::new(ErrorType::Missing(Segment::Part(Part::Minor)), Span::new(2, 3))))]
+    #[test_case("1.2. " => Err(ErrorSpan::new(ErrorType::Missing(Segment::Part(Part::Patch)), Span::new(4, 5))))]
+    #[test_case("1.2.3-" => Err(ErrorSpan::new(ErrorType::Missing(Segment::PreRelease), Span::new(5, 6))))]
+    #[test_case("1.2.3-." => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 7))); "pre release trailing dot")]
+    #[test_case("1.2.3--" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 7))); "pre release trailing hyphen")]
+    #[test_case("1.2.3-+" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 7))); "pre release trailing plus")]
+    #[test_case("1.2.3+" => Err(ErrorSpan::new(ErrorType::Missing(Segment::Build), Span::new(5, 6))))]
+    #[test_case("1.2.3+." => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 7))); "build trailing dot")]
+    #[test_case("1.2.3+-" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 7))); "build trailing hyphen")]
+    #[test_case("1.2.3++" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 7))); "build trailing plus")]
+    #[test_case("a.b.c" => Err(ErrorSpan::new(ErrorType::NotANumber(Part::Major), Span::new(0, 1))))]
+    #[test_case("1.+.0" => Err(ErrorSpan::new(ErrorType::NotANumber(Part::Minor), Span::new(2, 3))))]
+    #[test_case("1.2.." => Err(ErrorSpan::new(ErrorType::NotANumber(Part::Patch), Span::new(4, 5))))]
+    #[test_case("123456789012345678901234567890" => Err(ErrorSpan::new(ErrorType::NotANumber(Part::Major), Span::new(0, 30))))]
+    #[test_case("1 abc" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(2, 5))))]
+    #[test_case("1.2.3 abc" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 9))))]
+    fn test_simple_errors(input: &str) -> Result<Version, ErrorSpan> {
+        parse_into_version(lex(input))
+    }
+
+    #[test_case("" => r#"Could not parse the major identifier: No input
 |    
 |    
-"#
-            )
-        );
-        assert_eq!(
-            parsed_version("  "),
-            String::from(
-                r#"Could not parse the major identifier: No input
+"#; "empty string")]
+    #[test_case("  " => r#"Could not parse the major identifier: No input
 |      
 |    ^^
-"#
-            )
-        );
-        assert_eq!(
-            parsed_version("1.2.3-"),
-            String::from(
-                r#"Could not parse the pre-release identifier: No input
+"#; "blank string")]
+    #[test_case("1.2.3-" => r#"Could not parse the pre-release identifier: No input
 |    1.2.3-
 |    ~~~~~^
-"#
-            )
-        );
-        assert_eq!(
-            parsed_version("1.2.3+"),
-            String::from(
-                r#"Could not parse the build identifier: No input
+"#)]
+    #[test_case("1.2.3+" => r#"Could not parse the build identifier: No input
 |    1.2.3+
 |    ~~~~~^
-"#
-            )
-        );
-        assert_eq!(
-            parsed_version("a.b.c"),
-            String::from(
-                r#"Could not parse the major identifier: `a` is not a number
+"#)]
+    #[test_case("a.b.c" => r#"Could not parse the major identifier: `a` is not a number
 |    a.b.c
 |    ^
-"#
-            )
-        );
-        assert_eq!(
-            parsed_version("1.+.0"),
-            String::from(
-                r#"Could not parse the minor identifier: `+` is not a number
+"#)]
+    #[test_case("1.+.0" => r#"Could not parse the minor identifier: `+` is not a number
 |    1.+.0
 |    ~~^
-"#
-            )
-        );
-        assert_eq!(
-            parsed_version("1.2.."),
-            String::from(
-                r#"Could not parse the patch identifier: `.` is not a number
+"#)]
+    #[test_case("1.2.." => r#"Could not parse the patch identifier: `.` is not a number
 |    1.2..
 |    ~~~~^
-"#
-            )
-        );
-        assert_eq!(
-            parsed_version("123456789012345678901234567890"),
-            String::from(
-                r#"Could not parse the major identifier: `123456789012345678901234567890` is not a number
+"#)]
+    #[test_case("123456789012345678901234567890" => r#"Could not parse the major identifier: `123456789012345678901234567890` is not a number
 |    123456789012345678901234567890
 |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-"#
-            )
-        );
-        assert_eq!(
-            parsed_version("1.2.3 abc"),
-            String::from(
-                r#"Unexpected `abc`
+"#)]
+    #[test_case("1.2.3 abc" => r#"Unexpected `abc`
 |    1.2.3 abc
 |    ~~~~~~^^^
-"#
-            )
-        );
+"#)]
+    fn test_full_errors(input: &str) -> String {
+        format!("{:#}", parse_version(input).unwrap_err())
     }
 
     #[test]
@@ -1078,56 +850,45 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_version_number() {
+    fn parse_version_number() {
         assert_eq!(
             parse_number(Token::Number(42), Part::Major, Span::new(1, 2)),
             Ok(42)
-        );
-        assert_eq!(
-            parse_number_inner(Token::Dot, Part::Patch),
-            Err(ErrorType::NotANumber(Part::Patch))
-        );
-        assert_eq!(
-            parse_number_inner(Token::Plus, Part::Patch),
-            Err(ErrorType::NotANumber(Part::Patch))
-        );
-        assert_eq!(
-            parse_number_inner(Token::Hyphen, Part::Patch),
-            Err(ErrorType::NotANumber(Part::Patch))
-        );
-        assert_eq!(
-            parse_number_inner(Token::Whitespace, Part::Patch),
-            Err(ErrorType::NotANumber(Part::Patch))
-        );
-        assert_eq!(
-            parse_number_inner(Token::Alpha("foo"), Part::Patch),
-            Err(ErrorType::NotANumber(Part::Patch))
-        );
-        assert_eq!(
-            parse_number_inner(Token::UnexpectedChar('🙈', 42), Part::Patch),
-            Err(ErrorType::NotANumber(Part::Patch))
-        );
+        )
     }
 
-    #[test]
-    fn test_is_release_identifier() {
-        for valid in [
-            "Final", "FINAL", "final", "FiNaL", "fInAL", "Release", "RELEASE", "release",
-            "ReLeAsE", "rElEAse",
-        ]
-        .as_ref()
-        {
-            assert!(is_release_identifier(valid));
-        }
+    #[test_case((Token::Dot, Part::Patch) => Err(ErrorType::NotANumber(Part::Patch)))]
+    #[test_case((Token::Plus, Part::Patch) => Err(ErrorType::NotANumber(Part::Patch)))]
+    #[test_case((Token::Hyphen, Part::Patch) => Err(ErrorType::NotANumber(Part::Patch)))]
+    #[test_case((Token::Whitespace, Part::Patch) => Err(ErrorType::NotANumber(Part::Patch)))]
+    #[test_case((Token::Alpha("foo"), Part::Patch) => Err(ErrorType::NotANumber(Part::Patch)))]
+    #[test_case((Token::UnexpectedChar('🙈', 42), Part::Patch) => Err(ErrorType::NotANumber(Part::Patch)))]
+    fn parse_version_number_error(v: (Token, Part)) -> Result<u64, ErrorType> {
+        let (token, part) = v;
+        parse_number_inner(token, part)
     }
 
-    #[test]
-    fn test_release_cmp() {
-        assert!(parse_version("1.2.3") == parse_version("1.2.3.Final"));
-        assert!(parse_version("1.2.3") == parse_version("1.2.3.Release"));
-        assert!(parse_version("1.2.3") == parse_version("1.2.3-Final"));
-        assert!(parse_version("1.2.3") == parse_version("1.2.3-Release"));
-        assert!(parse_version("1.2.3") == parse_version("1.2.3+Final"));
-        assert!(parse_version("1.2.3") == parse_version("1.2.3+Release"));
+    #[test_case("Final"; "final pascal")]
+    #[test_case("FINAL"; "final upper")]
+    #[test_case("final"; "final lower")]
+    #[test_case("FiNaL"; "final upper sponge")]
+    #[test_case("fInAL"; "final lower sponge")]
+    #[test_case("Release"; "release pascal")]
+    #[test_case("RELEASE"; "release upper")]
+    #[test_case("release"; "release lower")]
+    #[test_case("ReLeAsE"; "release upper sponge")]
+    #[test_case("rElEAse"; "release lower sponge")]
+    fn test_is_release_identifier(v: &str) {
+        assert!(is_release_identifier(v));
+    }
+
+    #[test_case("1.2.3" => parse_version("1.2.3.Final"); "dot final")]
+    #[test_case("1.2.3" => parse_version("1.2.3.Release"); "dot release")]
+    #[test_case("1.2.3" => parse_version("1.2.3-Final"); "hyphen final")]
+    #[test_case("1.2.3" => parse_version("1.2.3-Release"); "hyphen release")]
+    #[test_case("1.2.3" => parse_version("1.2.3+Final"); "plus final")]
+    #[test_case("1.2.3" => parse_version("1.2.3+Release"); "plus release")]
+    fn test_release_cmp(v: &str) -> Result<Version, Error> {
+        parse_version(v)
     }
 }
