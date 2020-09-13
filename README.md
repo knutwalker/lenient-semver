@@ -13,5 +13,8 @@ The differenc include:
 - Pre-release identifier may be separated by `.` as well (e.g. "1.2.3.rc1" parses at "1.2.3-rc1")
 - Some pre-release identifiers are parsed as build identifier (e.g. "1.2.3.Final" parses at "1.2.3+Final")
 
+This diagram shows lenient parsing grammar
+
+![doc/railroad.svg](./doc/railroad.svg)
 
 License: MIT OR Apache-2.0
