@@ -42,24 +42,67 @@
 //! - Some pre-release identifiers are parsed as build identifier (e.g. "1.2.3.Final" parses at "1.2.3+Final")
 //!
 
-use std::{fmt::Display, num::ParseIntError};
-
 use semver::{Identifier, Version};
+use std::fmt::Display;
 
-pub(crate) fn parse_version(input: &str) -> Result<Version, Error> {
-    parse_tokens(lex(input))
+pub(crate) fn parse_version(input: &str) -> Result<Version, Error<'_>> {
+    let mut lexer = lex(input);
+    match parse_into_version(&mut lexer) {
+        Ok(result) => Ok(result),
+        Err(error_type) => {
+            let (matched, _) = lexer.into_parsed();
+            let error = Error {
+                input,
+                error_pos: matched.len(),
+                error_type,
+            };
+            Err(error)
+        }
+    }
 }
 
-// TODO: struct with pos
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Error<'input> {
+    input: &'input str,
+    error_pos: usize,
+    error_type: ErrorType<'input>,
+}
+
+impl Display for Error<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.error_type {
+            ErrorType::Missing(segment) => {
+                write!(f, "Could not parse the {} identifier: No input", segment)?
+            }
+            ErrorType::NotANumber(part, token) => write!(
+                f,
+                "Could not parse the {} identifier: `{}` is not a number",
+                part, token
+            )?,
+            ErrorType::Unexpected(token) => write!(f, "Unexpected `{}`", token)?,
+        }
+        if f.alternate() {
+            writeln!(f)?;
+            writeln!(f, "    {}", self.input)?;
+            write!(f, "    ")?;
+            let c = f.fill();
+            for _ in 0..self.error_pos.saturating_sub(1) {
+                write!(f, "{}", c)?;
+            }
+            for _ in self.error_pos.saturating_sub(1)..self.input.len() {
+                write!(f, "^")?;
+            }
+            writeln!(f)?
+        }
+        Ok(())
+    }
+}
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum Error {
-    NonNumeric(Part, String),
+enum ErrorType<'input> {
     Missing(Segment),
-    // TODO: add slice
-    // parse_error("Extra junk after valid version:  abc")
-    ExtraJunk,
-    Other(String),
+    NotANumber(Part, Token<'input>),
+    Unexpected(Token<'input>),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -69,11 +112,31 @@ pub(crate) enum Part {
     Patch,
 }
 
+impl Display for Part {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Part::Major => f.pad("major"),
+            Part::Minor => f.pad("minor"),
+            Part::Patch => f.pad("patch"),
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Segment {
     Part(Part),
     PreRelease,
     Build,
+}
+
+impl Display for Segment {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Segment::Part(part) => part.fmt(f),
+            Segment::PreRelease => f.pad("pre-release"),
+            Segment::Build => f.pad("build"),
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -83,7 +146,7 @@ enum State {
     Build,
 }
 
-fn parse_tokens<'input, I>(tokens: I) -> Result<Version, Error>
+fn parse_into_version<'input, I>(tokens: I) -> Result<Version, ErrorType<'input>>
 where
     I: IntoIterator<Item = Token<'input>>,
 {
@@ -91,7 +154,7 @@ where
     let mut tokens = tokens.skip_while(|t| matches!(t, Token::Whitespace(_)));
 
     let mut version = Version::new(0, 0, 0);
-    version.major = expect_version_number(&mut tokens, Part::Major)?;
+    version.major = expect_number(&mut tokens, Part::Major)?;
 
     let mut state = match tokens.next() {
         Some(Token::Dot) => State::Part(Part::Minor),
@@ -119,11 +182,11 @@ where
                     }
                     // unexpected end
                     Some(Token::Whitespace(_)) | None => {
-                        return Err(Error::Missing(Segment::Part(part)));
+                        return Err(ErrorType::Missing(Segment::Part(part)));
                     }
                     // any other token is tried as a number
                     Some(token) => {
-                        let num = parse_version_number(token, part)?;
+                        let num = parse_number(token, part)?;
                         match part {
                             Part::Major => unreachable!(),
                             Part::Minor => version.minor = num,
@@ -161,7 +224,7 @@ where
                     }
                     // unexpected end
                     Some(Token::Whitespace(_)) | None => {
-                        return Err(Error::Missing(Segment::PreRelease));
+                        return Err(ErrorType::Missing(Segment::PreRelease));
                     }
                     // any other token is invalid
                     Some(token) => {
@@ -189,7 +252,7 @@ where
                         }
                         // unexpected end
                         Some(Token::Whitespace(_)) | None => {
-                            return Err(Error::Missing(Segment::Build));
+                            return Err(ErrorType::Missing(Segment::Build));
                         }
                         // any other token is invalid
                         Some(token) => {
@@ -209,36 +272,24 @@ where
     }
 }
 
-fn expect_version_number<'input, I>(tokens: &mut I, part: Part) -> Result<u64, Error>
+fn expect_number<'input, I>(tokens: &mut I, part: Part) -> Result<u64, ErrorType<'input>>
 where
     I: Iterator<Item = Token<'input>>,
 {
     let token = tokens
         .next()
-        .ok_or_else(|| Error::Missing(Segment::Part(part)))?;
-    parse_version_number(token, part)
+        .ok_or_else(|| ErrorType::Missing(Segment::Part(part)))?;
+    parse_number(token, part)
 }
 
-fn parse_version_number<'input>(token: Token<'input>, part: Part) -> Result<u64, Error> {
+fn parse_number<'input>(token: Token<'input>, part: Part) -> Result<u64, ErrorType<'input>> {
     match token {
         Token::Number(n) => Ok(n),
-        Token::InvalidNumber(input, error) => Err(Error::NonNumeric(
-            part,
-            format!("`{}` cannot be parsed into a number: {}", input, error),
-        )),
-        Token::Alpha(_)
-        | Token::Whitespace(_)
-        | Token::Dot
-        | Token::Plus
-        | Token::Hyphen
-        | Token::UnexpectedChar(_, _) => Err(Error::NonNumeric(
-            part,
-            format!("`{}` is not a number", token),
-        )),
+        otherwise => Err(ErrorType::NotANumber(part, otherwise)),
     }
 }
 
-fn finish_tokens<'input, I, T>(tokens: I, value: T) -> Result<T, Error>
+fn finish_tokens<'input, I, T>(tokens: I, value: T) -> Result<T, ErrorType<'input>>
 where
     I: Iterator<Item = Token<'input>>,
 {
@@ -251,16 +302,8 @@ where
     Ok(value)
 }
 
-fn invalid_token<'input>(token: Token<'input>) -> Error {
-    match token {
-        Token::UnexpectedChar(c, pos) => {
-            Error::Other(format!("Unexpected character `{}` at position {}", c, pos))
-        }
-        Token::InvalidNumber(input, error) => {
-            Error::Other(format!("Unexpected number `{}`: {}", input, error))
-        }
-        _ => Error::ExtraJunk,
-    }
+fn invalid_token<'input>(token: Token<'input>) -> ErrorType<'input> {
+    ErrorType::Unexpected(token)
 }
 
 fn is_release_identifier(v: &str) -> bool {
@@ -297,6 +340,13 @@ impl<'input> Lexer<'input> {
             peeked,
         }
     }
+
+    fn into_parsed(mut self) -> (&'input str, &'input str) {
+        match self.peeked.take() {
+            Some((pos, _)) => (&self.input[..pos], &self.input[pos..]),
+            None => (self.input, ""),
+        }
+    }
 }
 #[derive(Debug, PartialEq, Eq)]
 enum Token<'input> {
@@ -313,7 +363,6 @@ enum Token<'input> {
     /// `-`
     Hyphen,
     /// Error cases
-    InvalidNumber(&'input str, ParseIntError),
     UnexpectedChar(char, usize),
 }
 
@@ -335,13 +384,8 @@ impl<'input> Iterator for Lexer<'input> {
         }
         if c.is_ascii_digit() {
             let mut end = self.input.len();
-            let mut is_alpha = false;
             while let Some((j, c)) = self.chars.next() {
-                if c.is_ascii_digit() {
-                    continue;
-                }
                 if c.is_alphanumeric() {
-                    is_alpha = true;
                     continue;
                 }
                 end = j;
@@ -349,12 +393,9 @@ impl<'input> Iterator for Lexer<'input> {
                 break;
             }
             let number = &self.input[i..end];
-            if is_alpha {
-                return Some(Token::Alpha(number));
-            }
             let token = match number.parse::<u64>() {
                 Ok(number) => Token::Number(number),
-                Err(e) => Token::InvalidNumber(number, e),
+                Err(_) => Token::Alpha(number),
             };
             return Some(token);
         }
@@ -384,14 +425,13 @@ impl<'input> Iterator for Lexer<'input> {
 impl<'input> Display for Token<'input> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Token::Whitespace(s) => s.fmt(f),
+            Token::Whitespace(s) => f.pad(s),
             Token::Number(n) => n.fmt(f),
-            Token::Alpha(s) => s.fmt(f),
-            Token::Dot => f.write_str("."),
-            Token::Plus => f.write_str("+"),
-            Token::Hyphen => f.write_str("-"),
-            Token::InvalidNumber(s, _) => s.fmt(f),
-            Token::UnexpectedChar(c, _) => f.write_fmt(format_args!("{}", c)),
+            Token::Alpha(s) => f.pad(s),
+            Token::Dot => f.pad("."),
+            Token::Plus => f.pad("+"),
+            Token::Hyphen => f.pad("-"),
+            Token::UnexpectedChar(c, _) => c.fmt(f),
         }
     }
 }
@@ -701,7 +741,11 @@ mod tests {
 
     #[test]
     fn parse_error() {
-        use Error::*;
+        fn parse_version(input: &str) -> Result<Version, ErrorType> {
+            parse_into_version(lex(input))
+        }
+
+        use ErrorType::*;
 
         assert_eq!(parse_version(""), Err(Missing(Segment::Part(Part::Major))));
         assert_eq!(
@@ -712,21 +756,116 @@ mod tests {
         assert_eq!(parse_version("1.2.3+"), Err(Missing(Segment::Build)));
         assert_eq!(
             parse_version("a.b.c"),
-            Err(NonNumeric(Part::Major, String::from("`a` is not a number")))
+            Err(NotANumber(Part::Major, Token::Alpha("a")))
         );
         assert_eq!(
             parse_version("1.+.0"),
-            Err(NonNumeric(Part::Minor, String::from("`+` is not a number")))
+            Err(NotANumber(Part::Minor, Token::Plus))
         );
         assert_eq!(
             parse_version("1.2.."),
-            Err(NonNumeric(Part::Patch, String::from("`.` is not a number")))
+            Err(NotANumber(Part::Patch, Token::Dot))
         );
         assert_eq!(
             parse_version("123456789012345678901234567890"),
-            Err(NonNumeric(Part::Major, String::from("`123456789012345678901234567890` cannot be parsed into a number: number too large to fit in target type")))
+            Err(NotANumber(
+                Part::Major,
+                Token::Alpha("123456789012345678901234567890")
+            ))
         );
-        assert_eq!(parse_version("1.2.3 abc"), Err(ExtraJunk));
+        assert_eq!(
+            parse_version("1.2.3 abc"),
+            Err(Unexpected(Token::Alpha("abc")))
+        );
+    }
+
+    #[test]
+    fn parse_error_string() {
+        fn parsed_version(input: &str) -> String {
+            format!("{:#}", parse_version(input).unwrap_err())
+        }
+
+        assert_eq!(
+            parsed_version(""),
+            String::from(
+                r#"Could not parse the major identifier: No input
+    
+    
+"#
+            )
+        );
+        assert_eq!(
+            parsed_version("  "),
+            String::from(
+                r#"Could not parse the major identifier: No input
+      
+     ^
+"#
+            )
+        );
+        assert_eq!(
+            parsed_version("1.2.3-"),
+            String::from(
+                r#"Could not parse the pre-release identifier: No input
+    1.2.3-
+         ^
+"#
+            )
+        );
+        assert_eq!(
+            parsed_version("1.2.3+"),
+            String::from(
+                r#"Could not parse the build identifier: No input
+    1.2.3+
+         ^
+"#
+            )
+        );
+        assert_eq!(
+            parsed_version("a.b.c"),
+            String::from(
+                r#"Could not parse the major identifier: `a` is not a number
+    a.b.c
+    ^^^^^
+"#
+            )
+        );
+        assert_eq!(
+            parsed_version("1.+.0"),
+            String::from(
+                r#"Could not parse the minor identifier: `+` is not a number
+    1.+.0
+      ^^^
+"#
+            )
+        );
+        assert_eq!(
+            parsed_version("1.2.."),
+            String::from(
+                r#"Could not parse the patch identifier: `.` is not a number
+    1.2..
+        ^
+"#
+            )
+        );
+        assert_eq!(
+            parsed_version("123456789012345678901234567890"),
+            String::from(
+                r#"Could not parse the major identifier: `123456789012345678901234567890` is not a number
+    123456789012345678901234567890
+                                 ^
+"#
+            )
+        );
+        assert_eq!(
+            parsed_version("1.2.3 abc"),
+            String::from(
+                r#"Unexpected `abc`
+    1.2.3 abc
+            ^
+"#
+            )
+        );
     }
 
     #[test]
@@ -779,9 +918,8 @@ mod tests {
     #[test]
     fn test_lexer_invalid_number() {
         let input = "123456789012345678901234567890";
-        let err = input.parse::<u64>().unwrap_err();
         let tokens = lex(input).collect::<Vec<_>>();
-        assert_eq!(tokens, vec![Token::InvalidNumber(input, err)]);
+        assert_eq!(tokens, vec![Token::Alpha(input)]);
     }
 
     #[test]
@@ -834,7 +972,7 @@ mod tests {
         ];
 
         assert_eq!(
-            parse_tokens(tokens),
+            parse_into_version(tokens),
             Ok(Version {
                 major: 1,
                 minor: 2,
@@ -855,57 +993,32 @@ mod tests {
 
     #[test]
     fn test_parse_version_number() {
-        assert_eq!(parse_version_number(Token::Number(42), Part::Major), Ok(42));
+        assert_eq!(parse_number(Token::Number(42), Part::Major), Ok(42));
         assert_eq!(
-            parse_version_number(
-                Token::InvalidNumber(" ", " ".parse::<u64>().unwrap_err()),
-                Part::Minor
-            ),
-            Err(Error::NonNumeric(
-                Part::Minor,
-                String::from("` ` cannot be parsed into a number: invalid digit found in string")
-            ))
+            parse_number(Token::Dot, Part::Patch),
+            Err(ErrorType::NotANumber(Part::Patch, Token::Dot))
         );
         assert_eq!(
-            parse_version_number(Token::Dot, Part::Patch),
-            Err(Error::NonNumeric(
-                Part::Patch,
-                String::from("`.` is not a number")
-            ))
+            parse_number(Token::Plus, Part::Patch),
+            Err(ErrorType::NotANumber(Part::Patch, Token::Plus))
         );
         assert_eq!(
-            parse_version_number(Token::Plus, Part::Patch),
-            Err(Error::NonNumeric(
-                Part::Patch,
-                String::from("`+` is not a number")
-            ))
+            parse_number(Token::Hyphen, Part::Patch),
+            Err(ErrorType::NotANumber(Part::Patch, Token::Hyphen))
         );
         assert_eq!(
-            parse_version_number(Token::Hyphen, Part::Patch),
-            Err(Error::NonNumeric(
-                Part::Patch,
-                String::from("`-` is not a number")
-            ))
+            parse_number(Token::Whitespace("  "), Part::Patch),
+            Err(ErrorType::NotANumber(Part::Patch, Token::Whitespace("  ")))
         );
         assert_eq!(
-            parse_version_number(Token::Whitespace("  "), Part::Patch),
-            Err(Error::NonNumeric(
-                Part::Patch,
-                String::from("`  ` is not a number")
-            ))
+            parse_number(Token::Alpha("foo"), Part::Patch),
+            Err(ErrorType::NotANumber(Part::Patch, Token::Alpha("foo")))
         );
         assert_eq!(
-            parse_version_number(Token::Alpha("foo"), Part::Patch),
-            Err(Error::NonNumeric(
+            parse_number(Token::UnexpectedChar('🙈', 42), Part::Patch),
+            Err(ErrorType::NotANumber(
                 Part::Patch,
-                String::from("`foo` is not a number")
-            ))
-        );
-        assert_eq!(
-            parse_version_number(Token::UnexpectedChar('🙈', 42), Part::Patch),
-            Err(Error::NonNumeric(
-                Part::Patch,
-                String::from("`🙈` is not a number")
+                Token::UnexpectedChar('🙈', 42)
             ))
         );
     }
