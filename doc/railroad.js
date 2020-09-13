@@ -1,7 +1,7 @@
 // To render as railroad, paste the content of this file at
 // https://tabatkins.github.io/railroad-diagrams/generator.html
 Diagram(
-  Optional(NonTerminal('white space'), 'skip'),
+  Optional(NonTerminal('whitespace'), 'skip'),
 
   NonTerminal('major'),
 
@@ -62,5 +62,5 @@ Diagram(
     )
   ),
 
-  Optional(NonTerminal('white space'), 'skip'),
+  Optional(NonTerminal('whitespace'), 'skip'),
 )

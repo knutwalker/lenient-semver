@@ -1,4 +1,4 @@
-# lenient-version-parser
+# Lenient Version Parser
 
 Lenient parser for Semantic Version numbers.
 

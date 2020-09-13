@@ -1,4 +1,4 @@
-# {{crate}}
+# Lenient Version Parser
 
 {{readme}}
 
