@@ -45,7 +45,8 @@
 use semver::{Identifier, Version};
 use std::fmt::Display;
 
-pub(crate) fn parse_version(input: &str) -> Result<Version, Error<'_>> {
+/// Parse a string slice into a Version
+pub fn parse_version(input: &str) -> Result<Version, Error<'_>> {
     match parse_into_version(lex(input)) {
         Ok(result) => Ok(result),
         Err(ErrorSpan { error, span }) => {
@@ -55,8 +56,10 @@ pub(crate) fn parse_version(input: &str) -> Result<Version, Error<'_>> {
     }
 }
 
+/// Possible errors that happen during parsing
+/// and the location of the token where the error occurred.
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct Error<'input> {
+pub struct Error<'input> {
     input: &'input str,
     span: Span,
     error: ErrorType,
@@ -589,7 +592,7 @@ mod tests {
     #[test_case("1.2" => Ok(vers!(1 . 2 . 0)); "major.minor only")]
     #[test_case("1.2.3" => Ok(vers!(1 . 2 . 3)); "major.minor.patch")]
     #[test_case("  1.2.3  " => Ok(vers!(1 . 2 . 3)); "with whitespace")]
-    fn test_simple(input: &str) -> Result<Version, Error> {
+    fn test_simple(input: &str) -> Result<Version, Error<'_>> {
         parse_version(input)
     }
 
@@ -605,7 +608,7 @@ mod tests {
     #[test_case("1.RC3" => Ok(vers!(1 . 0 . 0 - "RC3")))]
     #[test_case("1.3.3.7" => Ok(vers!(1 . 3 . 3 - 7)))]
     #[test_case("5.9.0.202009080501-r" => Ok(vers!(5 . 9 . 0 - 202009080501 - "r")))] // This should really be a + build
-    fn test_pre_release(input: &str) -> Result<Version, Error> {
+    fn test_pre_release(input: &str) -> Result<Version, Error<'_>> {
         parse_version(input)
     }
 
@@ -617,7 +620,7 @@ mod tests {
     #[test_case("1.4+build02" => Ok(vers!(1 . 4 . 0 + "build02")))]
     #[test_case("1+build03" => Ok(vers!(1 . 0 . 0 + "build03")))]
     #[test_case("7.2.0+28-2f9fb552" => Ok(vers!(7 . 2 . 0 + 28 -  "2f9fb552" )))]
-    fn test_build(input: &str) -> Result<Version, Error> {
+    fn test_build(input: &str) -> Result<Version, Error<'_>> {
         parse_version(input)
     }
 
@@ -625,7 +628,7 @@ mod tests {
     #[test_case("   1.2.3-alpha2+build6   " => Ok(vers!(1 . 2 . 3 pre "alpha2" ; build "build6" )))]
     #[test_case("1.2.3-1.alpha1.9+build5.7.3aedf  " => Ok(vers!(1 . 2 . 3 pre 1 - "alpha1" - 9 ; build "build5" - 7 - "3aedf" )))]
     #[test_case("0.4.0-beta.1+0851523" => Ok(vers!(0 . 4 . 0 pre "beta" - 1 ; build "0851523" )))]
-    fn test_combined(input: &str) -> Result<Version, Error> {
+    fn test_combined(input: &str) -> Result<Version, Error<'_>> {
         parse_version(input)
     }
 
@@ -647,7 +650,7 @@ mod tests {
     #[test_case("2.Release" => Ok(vers!(2 . 0 . 0 + "Release" )); "major dot release")]
     #[test_case("2-Release" => Ok(vers!(2 . 0 . 0 + "Release" )); "major hyphen release")]
     #[test_case("2+Release" => Ok(vers!(2 . 0 . 0 + "Release" )); "major plus release")]
-    fn test_with_release_identifier(input: &str) -> Result<Version, Error> {
+    fn test_with_release_identifier(input: &str) -> Result<Version, Error<'_>> {
         parse_version(input)
     }
 
@@ -655,7 +658,7 @@ mod tests {
     #[test_case("2020.04.09" => Ok(vers!(2020 . 4 . 9)))]
     #[test_case("2020.4" => Ok(vers!(2020 . 4 . 0)))]
     #[test_case("2020.04" => Ok(vers!(2020 . 4 . 0)))]
-    fn test_date_versions(input: &str) -> Result<Version, Error> {
+    fn test_date_versions(input: &str) -> Result<Version, Error<'_>> {
         parse_version(input)
     }
 
@@ -863,7 +866,7 @@ mod tests {
     #[test_case((Token::Whitespace, Part::Patch) => Err(ErrorType::NotANumber(Part::Patch)))]
     #[test_case((Token::Alpha("foo"), Part::Patch) => Err(ErrorType::NotANumber(Part::Patch)))]
     #[test_case((Token::UnexpectedChar('🙈', 42), Part::Patch) => Err(ErrorType::NotANumber(Part::Patch)))]
-    fn parse_version_number_error(v: (Token, Part)) -> Result<u64, ErrorType> {
+    fn parse_version_number_error(v: (Token<'_>, Part)) -> Result<u64, ErrorType> {
         let (token, part) = v;
         parse_number_inner(token, part)
     }
@@ -888,7 +891,7 @@ mod tests {
     #[test_case("1.2.3" => parse_version("1.2.3-Release"); "hyphen release")]
     #[test_case("1.2.3" => parse_version("1.2.3+Final"); "plus final")]
     #[test_case("1.2.3" => parse_version("1.2.3+Release"); "plus release")]
-    fn test_release_cmp(v: &str) -> Result<Version, Error> {
+    fn test_release_cmp(v: &str) -> Result<Version, Error<'_>> {
         parse_version(v)
     }
 }
