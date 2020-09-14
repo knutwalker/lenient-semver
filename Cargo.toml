@@ -5,6 +5,10 @@ description = "Lenient parser for Semantic Version numbers."
 authors = ["Paul Horn <developer@knutwalker.de>"]
 edition = "2018"
 license = "MIT OR Apache-2.0"
+homepage = "https://github.com/knutwalker/lenient-semver/"
+repository = "https://github.com/knutwalker/lenient-semver/"
+categories = ["parser-implementations"]
+keywords = ["lenient", "parser", "semver", "semantic", "version"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
