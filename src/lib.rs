@@ -10,6 +10,7 @@
 //! - Minor and Path are optional an default to 0 (e.g. "1" parses at "1.0.0")
 //! - Pre-release identifier may be separated by `.` as well (e.g. "1.2.3.rc1" parses at "1.2.3-rc1")
 //! - Some pre-release identifiers are parsed as build identifier (e.g. "1.2.3.Final" parses at "1.2.3+Final")
+//! - A leading `v` or `V` is allowed (e.g. "v1.2.3")
 //!
 //! This diagram shows lenient parsing grammar
 //!
@@ -41,6 +42,12 @@
 //!     Version::parse("1.2.3+Final").unwrap()
 //! );
 //! assert!(Version::parse("1.2.3.Final").is_err());
+//!
+//! assert_eq!(
+//!     lenient_semver::parse::<Version>("v1.2.3").unwrap(),
+//!     Version::parse("1.2.3").unwrap()
+//! );
+//! assert!(Version::parse("v1.2.3").is_err());
 //! ```
 
 #![deny(
@@ -82,6 +89,7 @@ use std::{fmt::Display, ops::Range};
 /// - Minor and Path are optional an default to 0 (e.g. "1" parses at "1.0.0")
 /// - Pre-release identifier may be separated by `.` as well (e.g. "1.2.3.rc1" parses at "1.2.3-rc1")
 /// - Some pre-release identifiers are parsed as build identifier (e.g. "1.2.3.Final" parses at "1.2.3+Final")
+/// - A leading `v` or `V` is allowed (e.g. "v1.2.3")
 ///
 /// This diagram shows lenient parsing grammar
 ///
@@ -113,6 +121,12 @@ use std::{fmt::Display, ops::Range};
 ///     Version::parse("1.2.3+Final").unwrap()
 /// );
 /// assert!(Version::parse("1.2.3.Final").is_err());
+///
+/// assert_eq!(
+///     lenient_semver::parse::<Version>("v1.2.3").unwrap(),
+///     Version::parse("1.2.3").unwrap()
+/// );
+/// assert!(Version::parse("v1.2.3").is_err());
 /// ```
 pub fn parse<'input, V>(input: &'input str) -> Result<V::Out, Error<'input>>
 where
@@ -767,6 +781,7 @@ where
     let mut tokens = Tokens::new(tokens);
     let mut version = V::new();
     let mut state = State::Part(Part::Major);
+    let mut leading_v = false;
     let mut potential_dot4 = false;
 
     loop {
@@ -776,8 +791,12 @@ where
                 None => return Err(ErrorSpan::missing_part(Part::Major, tokens.span)),
                 // skip initial whitespace
                 Some(Token::Whitespace) => {}
+                // Skip leading v that is a separate token
+                Some(Token::Alpha(v)) if !leading_v && (v == "v" || v == "V") => {
+                    leading_v = true;
+                }
                 Some(token) => {
-                    version.set_major(parse_number(token, Part::Major, tokens.span)?);
+                    version.set_major(parse_number(token, !leading_v, Part::Major, tokens.span)?);
                     state = match tokens.next() {
                         None => return finish(version),
                         Some(Token::Dot) => State::Part(Part::Minor),
@@ -806,7 +825,7 @@ where
                 }
                 // any other token is tried as a number
                 Some(token) => {
-                    let num = parse_number(token, part, tokens.span)?;
+                    let num = parse_number(token, false, part, tokens.span)?;
                     match part {
                         Part::Major => unreachable!(),
                         Part::Minor => version.set_minor(num),
@@ -840,7 +859,7 @@ where
                         version.add_pre_release_str(v);
                     }
                     // leading zero numbers in pre-release are alphanum
-                    Some(Token::ZeroAlpha(v, _)) => {
+                    Some(Token::ZeroNum(v, _)) => {
                         version.add_pre_release_str(v);
                     }
                     // regular pre-release part
@@ -878,7 +897,7 @@ where
                             version.add_build_str(v);
                         }
                         // leading zero numbers in build are alphanum
-                        Some(Token::ZeroAlpha(v, _)) => {
+                        Some(Token::ZeroNum(v, _)) => {
                             version.add_build_str(v);
                         }
                         // regular build part
@@ -907,14 +926,20 @@ where
     }
 }
 
-fn parse_number(token: Token<'_>, part: Part, span: Span) -> Result<u64, ErrorSpan> {
-    parse_number_inner(token, part).map_err(|e| ErrorSpan::new(e, span))
+fn parse_number(
+    token: Token<'_>,
+    allow_vnum: bool,
+    part: Part,
+    span: Span,
+) -> Result<u64, ErrorSpan> {
+    parse_number_inner(token, allow_vnum, part).map_err(|e| ErrorSpan::new(e, span))
 }
 
-fn parse_number_inner(token: Token<'_>, part: Part) -> Result<u64, ErrorType> {
+fn parse_number_inner(token: Token<'_>, allow_vnum: bool, part: Part) -> Result<u64, ErrorType> {
     match token {
         Token::Number(n) => Ok(n),
-        Token::ZeroAlpha(_, n) => Ok(n),
+        Token::ZeroNum(_, n) => Ok(n),
+        Token::VNum(_, n) if allow_vnum => Ok(n),
         _ => Err(ErrorType::NotANumber(part)),
     }
 }
@@ -1020,7 +1045,9 @@ enum Token<'input> {
     /// alphanumeric component
     Alpha(&'input str),
     /// numeric component that begins with a leading zero
-    ZeroAlpha(&'input str, u64),
+    ZeroNum(&'input str, u64),
+    /// numeric component that begins with a leading zero
+    VNum(&'input str, u64),
     /// `.`
     Dot,
     /// `+`
@@ -1061,7 +1088,7 @@ impl<'input> Iterator for Lexer<'input> {
             let token = match number.parse::<u64>() {
                 Ok(num) => {
                     if number.len() > 1 && number.starts_with('0') {
-                        Token::ZeroAlpha(number, num)
+                        Token::ZeroNum(number, num)
                     } else {
                         Token::Number(num)
                     }
@@ -1071,6 +1098,7 @@ impl<'input> Iterator for Lexer<'input> {
             return Some(TokenSpan::new(start, end, token));
         }
         if c.is_alphanumeric() {
+            let v_num = c == 'v' || c == 'V';
             let mut end = self.input.len();
             while let Some((j, c)) = self.chars.next() {
                 if !c.is_alphanumeric() {
@@ -1079,7 +1107,15 @@ impl<'input> Iterator for Lexer<'input> {
                     break;
                 }
             }
-            let token = Token::Alpha(&self.input[start..end]);
+            let text = &self.input[start..end];
+            let token = if v_num {
+                match self.input[start + 1..end].parse::<u64>() {
+                    Ok(num) => Token::VNum(text, num),
+                    Err(_) => Token::Alpha(text),
+                }
+            } else {
+                Token::Alpha(text)
+            };
             return Some(TokenSpan::new(start, end, token));
         }
         let token = match c {
@@ -1277,6 +1313,20 @@ mod tests {
         parse::<Version<'_>>(input)
     }
 
+    #[test_case("v1" => Ok(vers!(1 . 0 . 0)))]
+    #[test_case("v 2" => Ok(vers!(2 . 0 . 0)))]
+    #[test_case("  v    3  " => Ok(vers!(3 . 0 . 0)))]
+    #[test_case("v1.2.3" => Ok(vers!(1 . 2 . 3)))]
+    #[test_case("v 1.3.3-7" => Ok(vers!(1 . 3 . 3 - 7)))]
+    #[test_case("V3" => Ok(vers!(3 . 0 . 0)))]
+    #[test_case("V 4" => Ok(vers!(4 . 0 . 0)))]
+    #[test_case("  V    5  " => Ok(vers!(5 . 0 . 0)))]
+    #[test_case("V2.3.4" => Ok(vers!(2 . 3 . 4)))]
+    #[test_case("V 4.2.4-2" => Ok(vers!(4 . 2 . 4 - 2)))]
+    fn test_leading_v(input: &str) -> Result<Version<'_>, Error<'_>> {
+        parse::<Version<'_>>(input)
+    }
+
     #[test_case("" => Err(ErrorSpan::new(ErrorType::Missing(Segment::Part(Part::Major)), Span::new(0, 0))))]
     #[test_case("  " => Err(ErrorSpan::new(ErrorType::Missing(Segment::Part(Part::Major)), Span::new(0, 2))))]
     #[test_case("1. " => Err(ErrorSpan::new(ErrorType::Missing(Segment::Part(Part::Minor)), Span::new(2, 3))))]
@@ -1289,6 +1339,11 @@ mod tests {
     #[test_case("1.2.3+." => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 7))); "build trailing dot")]
     #[test_case("1.2.3+-" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 7))); "build trailing hyphen")]
     #[test_case("1.2.3++" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 7))); "build trailing plus")]
+    #[test_case("v.1.2.3" => Err(ErrorSpan::new(ErrorType::NotANumber(Part::Major), Span::new(1, 2))))]
+    #[test_case("v-2.3.4" => Err(ErrorSpan::new(ErrorType::NotANumber(Part::Major), Span::new(1, 2))))]
+    #[test_case("v+3.4.5" => Err(ErrorSpan::new(ErrorType::NotANumber(Part::Major), Span::new(1, 2))))]
+    #[test_case("vv1.2.3" => Err(ErrorSpan::new(ErrorType::NotANumber(Part::Major), Span::new(0, 3))))]
+    #[test_case("v v1.2.3" => Err(ErrorSpan::new(ErrorType::NotANumber(Part::Major), Span::new(2, 4))))]
     #[test_case("a.b.c" => Err(ErrorSpan::new(ErrorType::NotANumber(Part::Major), Span::new(0, 1))))]
     #[test_case("1.+.0" => Err(ErrorSpan::new(ErrorType::NotANumber(Part::Minor), Span::new(2, 3))))]
     #[test_case("1.2.." => Err(ErrorSpan::new(ErrorType::NotANumber(Part::Patch), Span::new(4, 5))))]
@@ -1341,14 +1396,16 @@ mod tests {
 
     #[test]
     fn test_lexer() {
-        let tokens = lex("  1.2.3-1.alpha1.9+build5.7.3aedf-01337  ")
+        let tokens = lex(" v v1.2.3-1.alpha1.9+build5.7.3aedf-01337  ")
             .map(|s| s.token)
             .collect::<Vec<_>>();
         assert_eq!(
             tokens,
             vec![
                 Token::Whitespace,
-                Token::Number(1),
+                Token::Alpha("v"),
+                Token::Whitespace,
+                Token::VNum("v1", 1),
                 Token::Dot,
                 Token::Number(2),
                 Token::Dot,
@@ -1366,7 +1423,7 @@ mod tests {
                 Token::Dot,
                 Token::Alpha("3aedf"),
                 Token::Hyphen,
-                Token::ZeroAlpha("01337", 1337),
+                Token::ZeroNum("01337", 1337),
                 Token::Whitespace,
             ]
         );
@@ -1381,11 +1438,11 @@ mod tests {
                 Token::Dot,
                 Token::Number(0),
                 Token::Dot,
-                Token::ZeroAlpha("00", 0),
+                Token::ZeroNum("00", 0),
                 Token::Dot,
-                Token::ZeroAlpha("08", 8),
+                Token::ZeroNum("08", 8),
                 Token::Dot,
-                Token::ZeroAlpha("09", 9),
+                Token::ZeroNum("09", 9),
                 Token::Dot,
                 Token::Number(8),
                 Token::Dot,
@@ -1473,10 +1530,12 @@ mod tests {
         );
     }
 
-    #[test]
-    fn parse_version_number() {
+    #[test_case(Token::Number(42))]
+    #[test_case(Token::ZeroNum("042", 42))]
+    #[test_case(Token::VNum("v42", 42))]
+    fn parse_version_number(token: Token<'_>) {
         assert_eq!(
-            parse_number(Token::Number(42), Part::Major, Span::new(1, 2)),
+            parse_number(token, true, Part::Major, Span::new(1, 2)),
             Ok(42)
         )
     }
@@ -1489,7 +1548,7 @@ mod tests {
     #[test_case((Token::UnexpectedChar('🙈', 42), Part::Patch) => Err(ErrorType::NotANumber(Part::Patch)))]
     fn parse_version_number_error(v: (Token<'_>, Part)) -> Result<u64, ErrorType> {
         let (token, part) = v;
-        parse_number_inner(token, part)
+        parse_number_inner(token, false, part)
     }
 
     #[test_case("Final"; "final pascal")]

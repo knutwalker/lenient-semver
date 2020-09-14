@@ -7,6 +7,16 @@ Diagram(
       // leading whitespace is skipped
       Optional(NonTerminal('whitespace'), 'skip'),
 
+      // leading v is allowed
+      Choice(0,
+        Skip(),
+        Terminal('v'),
+        Terminal('V')
+      ),
+
+      // whitespace after the v is skipped
+      Optional(NonTerminal('whitespace'), 'skip'),
+
       // require at least the major version
       NonTerminal('major'),
 
