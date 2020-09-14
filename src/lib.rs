@@ -839,6 +839,10 @@ where
                     Some(Token::Alpha(v)) => {
                         version.add_pre_release_str(v);
                     }
+                    // leading zero numbers in pre-release are alphanum
+                    Some(Token::ZeroAlpha(v, _)) => {
+                        version.add_pre_release_str(v);
+                    }
                     // regular pre-release part
                     Some(Token::Number(v)) => {
                         if potential_dot4 {
@@ -871,6 +875,10 @@ where
                     match tokens.next() {
                         // regular build part
                         Some(Token::Alpha(v)) => {
+                            version.add_build_str(v);
+                        }
+                        // leading zero numbers in build are alphanum
+                        Some(Token::ZeroAlpha(v, _)) => {
                             version.add_build_str(v);
                         }
                         // regular build part
@@ -906,6 +914,7 @@ fn parse_number<'input>(token: Token<'input>, part: Part, span: Span) -> Result<
 fn parse_number_inner<'input>(token: Token<'input>, part: Part) -> Result<u64, ErrorType> {
     match token {
         Token::Number(n) => Ok(n),
+        Token::ZeroAlpha(_, n) => Ok(n),
         _ => Err(ErrorType::NotANumber(part)),
     }
 }
@@ -1010,6 +1019,8 @@ enum Token<'input> {
     Number(u64),
     /// alphanumeric component
     Alpha(&'input str),
+    /// numeric component that begins with a leading zero
+    ZeroAlpha(&'input str, u64),
     /// `.`
     Dot,
     /// `+`
@@ -1048,7 +1059,13 @@ impl<'input> Iterator for Lexer<'input> {
             }
             let number = &self.input[start..end];
             let token = match number.parse::<u64>() {
-                Ok(number) => Token::Number(number),
+                Ok(num) => {
+                    if number.len() > 1 && number.starts_with('0') {
+                        Token::ZeroAlpha(number, num)
+                    } else {
+                        Token::Number(num)
+                    }
+                }
                 Err(_) => Token::Alpha(number),
             };
             return Some(TokenSpan::new(start, end, token));
@@ -1212,7 +1229,7 @@ mod tests {
     #[test_case("1.2.3-alpha1+build5" => Ok(vers!(1 . 2 . 3 - "alpha1" + "build5" )))]
     #[test_case("   1.2.3-alpha2+build6   " => Ok(vers!(1 . 2 . 3 - "alpha2" + "build6" )))]
     #[test_case("1.2.3-1.alpha1.9+build5.7.3aedf  " => Ok(vers!(1 . 2 . 3 - 1 - "alpha1" - 9 + "build5" - 7 - "3aedf" )))]
-    #[test_case("0.4.0-beta.1+0851523" => Ok(vers!(0 . 4 . 0 - "beta" - 1 + 851523 )))] // This should really be an alphanum
+    #[test_case("0.4.0-beta.1+0851523" => Ok(vers!(0 . 4 . 0 - "beta" - 1 + "0851523" )))]
     fn test_combined(input: &str) -> Result<Version<'_>, Error<'_>> {
         parse::<Version<'_>>(input)
     }
@@ -1244,6 +1261,19 @@ mod tests {
     #[test_case("2020.4" => Ok(vers!(2020 . 4 . 0)))]
     #[test_case("2020.04" => Ok(vers!(2020 . 4 . 0)))]
     fn test_date_versions(input: &str) -> Result<Version<'_>, Error<'_>> {
+        parse::<Version<'_>>(input)
+    }
+
+    #[test_case("1" => Ok(vers!(1 . 0 . 0)))]
+    #[test_case("01" => Ok(vers!(1 . 0 . 0)))]
+    #[test_case("00001" => Ok(vers!(1 . 0 . 0)))]
+    #[test_case("1.2.3-1" => Ok(vers!(1 . 2 . 3 - 1)))]
+    #[test_case("1.2.3-01" => Ok(vers!(1 . 2 . 3 - "01")))]
+    #[test_case("1.2.3-0001" => Ok(vers!(1 . 2 . 3 - "0001")))]
+    #[test_case("2.3.4+1" => Ok(vers!(2 . 3 . 4 + 1)))]
+    #[test_case("2.3.4+01" => Ok(vers!(2 . 3 . 4 + "01")))]
+    #[test_case("2.3.4+0001" => Ok(vers!(2 . 3 . 4 + "0001")))]
+    fn test_leading_zeroes(input: &str) -> Result<Version<'_>, Error<'_>> {
         parse::<Version<'_>>(input)
     }
 
@@ -1311,7 +1341,7 @@ mod tests {
 
     #[test]
     fn test_lexer() {
-        let tokens = lex("  1.2.3-1.alpha1.9+build5.7.3aedf  ")
+        let tokens = lex("  1.2.3-1.alpha1.9+build5.7.3aedf-01337  ")
             .map(|s| s.token)
             .collect::<Vec<_>>();
         assert_eq!(
@@ -1335,13 +1365,15 @@ mod tests {
                 Token::Number(7),
                 Token::Dot,
                 Token::Alpha("3aedf"),
+                Token::Hyphen,
+                Token::ZeroAlpha("01337", 1337),
                 Token::Whitespace,
             ]
         );
     }
     #[test]
     fn test_lexer_numbers() {
-        let tokens = lex("1.0.00.08.09").map(|s| s.token).collect::<Vec<_>>();
+        let tokens = lex("1.0.00.08.09.8.9").map(|s| s.token).collect::<Vec<_>>();
         assert_eq!(
             tokens,
             vec![
@@ -1349,7 +1381,11 @@ mod tests {
                 Token::Dot,
                 Token::Number(0),
                 Token::Dot,
-                Token::Number(0),
+                Token::ZeroAlpha("00", 0),
+                Token::Dot,
+                Token::ZeroAlpha("08", 8),
+                Token::Dot,
+                Token::ZeroAlpha("09", 9),
                 Token::Dot,
                 Token::Number(8),
                 Token::Dot,
