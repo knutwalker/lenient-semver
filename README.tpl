@@ -1,4 +1,4 @@
-# Lenient Version Parser
+# Lenient Semantic Version Parser
 
 {{readme}}
 

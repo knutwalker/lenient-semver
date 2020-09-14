@@ -1,5 +1,5 @@
 [package]
-name = "lenient-version-parser"
+name = "lenient_semver"
 version = "0.1.0"
 description = "Lenient parser for Semantic Version numbers."
 authors = ["Paul Horn <developer@knutwalker.de>"]

@@ -24,24 +24,24 @@
 //! ```rust
 //! use semver::Version;
 //!
-//! let version = lenient_version_parser::parse_version("1.2.3");
+//! let version = lenient_semver::parse("1.2.3");
 //! assert_eq!(version, Ok(Version::new(1, 2, 3)));
 //!
 //! // examples of a version that would not be accepted by semver_parser
 //! assert_eq!(
-//!     lenient_version_parser::parse_version("1.2.M1").unwrap(),
+//!     lenient_semver::parse("1.2.M1").unwrap(),
 //!     Version::parse("1.2.0-M1").unwrap()
 //! );
 //! assert!(Version::parse("1.2.M1").is_err());
 //!
 //! assert_eq!(
-//!     lenient_version_parser::parse_version("1").unwrap(),
+//!     lenient_semver::parse("1").unwrap(),
 //!     Version::parse("1.0.0").unwrap()
 //! );
 //! assert!(Version::parse("1").is_err());
 //!
 //! assert_eq!(
-//!     lenient_version_parser::parse_version("1.2.3.Final").unwrap(),
+//!     lenient_semver::parse("1.2.3.Final").unwrap(),
 //!     Version::parse("1.2.3+Final").unwrap()
 //! );
 //! assert!(Version::parse("1.2.3.Final").is_err());
@@ -87,30 +87,30 @@ use std::{fmt::Display, ops::Range};
 /// ```rust
 /// use semver::Version;
 ///
-/// let version = lenient_version_parser::parse_version("1.2.3");
+/// let version = lenient_semver::parse("1.2.3");
 /// assert_eq!(version, Ok(Version::new(1, 2, 3)));
 ///
 /// // examples of a version that would not be accepted by semver_parser
 /// assert_eq!(
-///     lenient_version_parser::parse_version("1.2.M1").unwrap(),
+///     lenient_semver::parse("1.2.M1").unwrap(),
 ///     Version::parse("1.2.0-M1").unwrap()
 /// );
 /// assert!(Version::parse("1.2.M1").is_err());
 ///
 /// assert_eq!(
-///     lenient_version_parser::parse_version("1").unwrap(),
+///     lenient_semver::parse("1").unwrap(),
 ///     Version::parse("1.0.0").unwrap()
 /// );
 /// assert!(Version::parse("1").is_err());
 ///
 /// assert_eq!(
-///     lenient_version_parser::parse_version("1.2.3.Final").unwrap(),
+///     lenient_semver::parse("1.2.3.Final").unwrap(),
 ///     Version::parse("1.2.3+Final").unwrap()
 /// );
 /// assert!(Version::parse("1.2.3.Final").is_err());
 /// ```
-pub fn parse_version(input: &str) -> Result<Version, Error<'_>> {
-    parse_into_version(lex(input)).map_err(|ErrorSpan { error, span }| Error { input, span, error })
+pub fn parse(input: &str) -> Result<Version, Error<'_>> {
+    parse_version(lex(input)).map_err(|ErrorSpan { error, span }| Error { input, span, error })
 }
 
 /// Possible errors that happen during parsing
@@ -121,10 +121,10 @@ pub fn parse_version(input: &str) -> Result<Version, Error<'_>> {
 /// ```rust
 /// use semver::Version;
 ///
-/// let error = lenient_version_parser::parse_version("1+").unwrap_err();
+/// let error = lenient_semver::parse("1+").unwrap_err();
 /// assert_eq!(error.to_string(), "Could not parse the build identifier: No input");
 ///
-/// let error = lenient_version_parser::parse_version("1!").unwrap_err();
+/// let error = lenient_semver::parse("1!").unwrap_err();
 /// assert_eq!(error.to_string(), "Unexpected `!`");
 /// ```
 #[derive(Debug, PartialEq, Eq)]
@@ -152,7 +152,7 @@ impl<'input> Error<'input> {
     /// # Examples
     ///
     /// ```rust
-    /// let error = lenient_version_parser::parse_version("1+").unwrap_err();
+    /// let error = lenient_semver::parse("1+").unwrap_err();
     /// assert_eq!(error.input(), "1+");
     /// ```
     #[inline]
@@ -165,7 +165,7 @@ impl<'input> Error<'input> {
     /// # Examples
     ///
     /// ```rust
-    /// let error = lenient_version_parser::parse_version("1+").unwrap_err();
+    /// let error = lenient_semver::parse("1+").unwrap_err();
     /// assert_eq!(error.error_span(), 1..2);
     /// ```
     #[inline]
@@ -179,28 +179,28 @@ impl<'input> Error<'input> {
     ///
     /// ```rust
     /// assert_eq!(
-    ///     lenient_version_parser::parse_version("").unwrap_err().error_kind(),
-    ///     lenient_version_parser::ErrorKind::MissingMajorNumber
+    ///     lenient_semver::parse("").unwrap_err().error_kind(),
+    ///     lenient_semver::ErrorKind::MissingMajorNumber
     /// );
     /// assert_eq!(
-    ///     lenient_version_parser::parse_version("1.").unwrap_err().error_kind(),
-    ///     lenient_version_parser::ErrorKind::MissingMinorNumber
+    ///     lenient_semver::parse("1.").unwrap_err().error_kind(),
+    ///     lenient_semver::ErrorKind::MissingMinorNumber
     /// );
     /// assert_eq!(
-    ///     lenient_version_parser::parse_version("1.2.").unwrap_err().error_kind(),
-    ///     lenient_version_parser::ErrorKind::MissingPatchNumber
+    ///     lenient_semver::parse("1.2.").unwrap_err().error_kind(),
+    ///     lenient_semver::ErrorKind::MissingPatchNumber
     /// );
     /// assert_eq!(
-    ///     lenient_version_parser::parse_version("1-").unwrap_err().error_kind(),
-    ///     lenient_version_parser::ErrorKind::MissingPreRelease
+    ///     lenient_semver::parse("1-").unwrap_err().error_kind(),
+    ///     lenient_semver::ErrorKind::MissingPreRelease
     /// );
     /// assert_eq!(
-    ///     lenient_version_parser::parse_version("1+").unwrap_err().error_kind(),
-    ///     lenient_version_parser::ErrorKind::MissingBuild
+    ///     lenient_semver::parse("1+").unwrap_err().error_kind(),
+    ///     lenient_semver::ErrorKind::MissingBuild
     /// );
     /// assert_eq!(
-    ///     lenient_version_parser::parse_version("1!").unwrap_err().error_kind(),
-    ///     lenient_version_parser::ErrorKind::UnexpectedInput
+    ///     lenient_semver::parse("1!").unwrap_err().error_kind(),
+    ///     lenient_semver::ErrorKind::UnexpectedInput
     /// );
     /// ```
     #[inline]
@@ -229,7 +229,7 @@ impl<'input> Error<'input> {
     /// # Examples
     ///
     /// ```rust
-    /// let error = lenient_version_parser::parse_version("1+").unwrap_err();
+    /// let error = lenient_semver::parse("1+").unwrap_err();
     /// assert_eq!(error.erroneous_input(), "+");
     /// ```
     #[inline]
@@ -242,14 +242,14 @@ impl<'input> Error<'input> {
     /// # Examples
     ///
     /// ```rust
-    /// let error = lenient_version_parser::parse_version("1.").unwrap_err();
+    /// let error = lenient_semver::parse("1.").unwrap_err();
     /// assert_eq!(error.error_line(), String::from("Could not parse the minor identifier: No input"));
     /// ```
     ///
     /// This is equivalent to the [`Display`] implementation, which can be further customized with format specifiers.
     ///
     /// ```rust
-    /// let error = lenient_version_parser::parse_version("1?").unwrap_err();
+    /// let error = lenient_semver::parse("1?").unwrap_err();
     /// assert_eq!(format!("{:!^42}", error), String::from("!!!!!!!!!!!!!!Unexpected `?`!!!!!!!!!!!!!!"));
     /// ```
     pub fn error_line(&self) -> String {
@@ -271,10 +271,10 @@ impl<'input> Error<'input> {
     /// # Examples
     ///
     /// ```rust
-    /// let error = lenient_version_parser::parse_version("foo").unwrap_err();
+    /// let error = lenient_semver::parse("foo").unwrap_err();
     /// assert_eq!(error.indicate_erroneous_input(), "^^^");
     ///
-    /// let error = lenient_version_parser::parse_version("1.2.3 bar").unwrap_err();
+    /// let error = lenient_semver::parse("1.2.3 bar").unwrap_err();
     /// assert_eq!(error.indicate_erroneous_input(), "~~~~~~^^^");
     /// ```
     pub fn indicate_erroneous_input(&self) -> String {
@@ -516,7 +516,7 @@ where
     }
 }
 
-fn parse_into_version<'input, I>(tokens: I) -> Result<Version, ErrorSpan>
+fn parse_version<'input, I>(tokens: I) -> Result<Version, ErrorSpan>
 where
     I: IntoIterator<Item = TokenSpan<'input>>,
 {
@@ -884,7 +884,7 @@ mod tests {
     #[test_case("1.2.3" => Ok(vers!(1 . 2 . 3)); "major.minor.patch")]
     #[test_case("  1.2.3  " => Ok(vers!(1 . 2 . 3)); "with whitespace")]
     fn test_simple(input: &str) -> Result<Version, Error<'_>> {
-        parse_version(input)
+        parse(input)
     }
 
     #[test_case("1.2.3-alpha1" => Ok(vers!(1 . 2 . 3 - "alpha1")))]
@@ -900,7 +900,7 @@ mod tests {
     #[test_case("1.3.3.7" => Ok(vers!(1 . 3 . 3 - 7)))] // This should really be a + build
     #[test_case("5.9.0.202009080501-r" => Ok(vers!(5 . 9 . 0 - 202009080501 - "r")))] // This should really be a + build
     fn test_pre_release(input: &str) -> Result<Version, Error<'_>> {
-        parse_version(input)
+        parse(input)
     }
 
     #[test_case("1.2.3+build1" => Ok(vers!(1 . 2 . 3 + "build1")))]
@@ -912,7 +912,7 @@ mod tests {
     #[test_case("1+build03" => Ok(vers!(1 . 0 . 0 + "build03")))]
     #[test_case("7.2.0+28-2f9fb552" => Ok(vers!(7 . 2 . 0 + 28 -  "2f9fb552" )))]
     fn test_build(input: &str) -> Result<Version, Error<'_>> {
-        parse_version(input)
+        parse(input)
     }
 
     #[test_case("1.2.3-alpha1+build5" => Ok(vers!(1 . 2 . 3 pre "alpha1" ; build "build5" )))]
@@ -920,7 +920,7 @@ mod tests {
     #[test_case("1.2.3-1.alpha1.9+build5.7.3aedf  " => Ok(vers!(1 . 2 . 3 pre 1 - "alpha1" - 9 ; build "build5" - 7 - "3aedf" )))]
     #[test_case("0.4.0-beta.1+0851523" => Ok(vers!(0 . 4 . 0 pre "beta" - 1 ; build "0851523" )))]
     fn test_combined(input: &str) -> Result<Version, Error<'_>> {
-        parse_version(input)
+        parse(input)
     }
 
     #[test_case("2.7.3.Final" => Ok(vers!(2 . 7 . 3 + "Final" )); "full dot final")]
@@ -942,7 +942,7 @@ mod tests {
     #[test_case("2-Release" => Ok(vers!(2 . 0 . 0 + "Release" )); "major hyphen release")]
     #[test_case("2+Release" => Ok(vers!(2 . 0 . 0 + "Release" )); "major plus release")]
     fn test_with_release_identifier(input: &str) -> Result<Version, Error<'_>> {
-        parse_version(input)
+        parse(input)
     }
 
     #[test_case("2020.4.9" => Ok(vers!(2020 . 4 . 9)))]
@@ -950,7 +950,7 @@ mod tests {
     #[test_case("2020.4" => Ok(vers!(2020 . 4 . 0)))]
     #[test_case("2020.04" => Ok(vers!(2020 . 4 . 0)))]
     fn test_date_versions(input: &str) -> Result<Version, Error<'_>> {
-        parse_version(input)
+        parse(input)
     }
 
     #[test_case("" => Err(ErrorSpan::new(ErrorType::Missing(Segment::Part(Part::Major)), Span::new(0, 0))))]
@@ -972,7 +972,7 @@ mod tests {
     #[test_case("1 abc" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(2, 5))))]
     #[test_case("1.2.3 abc" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 9))))]
     fn test_simple_errors(input: &str) -> Result<Version, ErrorSpan> {
-        parse_into_version(lex(input))
+        parse_version(lex(input))
     }
 
     #[test_case("" => r#"Could not parse the major identifier: No input
@@ -1012,7 +1012,7 @@ mod tests {
 |    ~~~~~~^^^
 "#)]
     fn test_full_errors(input: &str) -> String {
-        format!("{:#}", parse_version(input).unwrap_err())
+        format!("{:#}", parse(input).unwrap_err())
     }
 
     #[test]
@@ -1121,7 +1121,7 @@ mod tests {
         ];
 
         assert_eq!(
-            parse_into_version(tokens.into_iter().map(|t| TokenSpan {
+            parse_version(tokens.into_iter().map(|t| TokenSpan {
                 token: t,
                 span: Span::new(1, 2)
             })),
@@ -1176,13 +1176,13 @@ mod tests {
         assert!(is_release_identifier(v));
     }
 
-    #[test_case("1.2.3" => parse_version("1.2.3.Final"); "dot final")]
-    #[test_case("1.2.3" => parse_version("1.2.3.Release"); "dot release")]
-    #[test_case("1.2.3" => parse_version("1.2.3-Final"); "hyphen final")]
-    #[test_case("1.2.3" => parse_version("1.2.3-Release"); "hyphen release")]
-    #[test_case("1.2.3" => parse_version("1.2.3+Final"); "plus final")]
-    #[test_case("1.2.3" => parse_version("1.2.3+Release"); "plus release")]
+    #[test_case("1.2.3" => parse("1.2.3.Final"); "dot final")]
+    #[test_case("1.2.3" => parse("1.2.3.Release"); "dot release")]
+    #[test_case("1.2.3" => parse("1.2.3-Final"); "hyphen final")]
+    #[test_case("1.2.3" => parse("1.2.3-Release"); "hyphen release")]
+    #[test_case("1.2.3" => parse("1.2.3+Final"); "plus final")]
+    #[test_case("1.2.3" => parse("1.2.3+Release"); "plus release")]
     fn test_release_cmp(v: &str) -> Result<Version, Error<'_>> {
-        parse_version(v)
+        parse(v)
     }
 }
