@@ -1,0 +1,3 @@
+(function() {var implementors = {};
+implementors["lenient_version_parser"] = [{"text":"impl&lt;'input&gt; Freeze for Error&lt;'input&gt;","synthetic":true,"types":[]},{"text":"impl Freeze for OwnedError","synthetic":true,"types":[]},{"text":"impl Freeze for ErrorKind","synthetic":true,"types":[]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()
