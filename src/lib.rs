@@ -539,7 +539,7 @@ pub struct OwnedError {
 
 impl OwnedError {
     /// Return a borrowed version of this error.
-    pub fn borrowed<'input>(&'input self) -> Error<'input> {
+    pub fn borrowed(&self) -> Error<'_> {
         Error {
             input: &self.input,
             span: self.span,
@@ -907,11 +907,11 @@ where
     }
 }
 
-fn parse_number<'input>(token: Token<'input>, part: Part, span: Span) -> Result<u64, ErrorSpan> {
+fn parse_number(token: Token<'_>, part: Part, span: Span) -> Result<u64, ErrorSpan> {
     parse_number_inner(token, part).map_err(|e| ErrorSpan::new(e, span))
 }
 
-fn parse_number_inner<'input>(token: Token<'input>, part: Part) -> Result<u64, ErrorType> {
+fn parse_number_inner(token: Token<'_>, part: Part) -> Result<u64, ErrorType> {
     match token {
         Token::Number(n) => Ok(n),
         Token::ZeroAlpha(_, n) => Ok(n),
