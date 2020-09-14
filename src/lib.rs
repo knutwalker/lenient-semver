@@ -767,6 +767,7 @@ where
     let mut tokens = Tokens::new(tokens);
     let mut version = V::new();
     let mut state = State::Part(Part::Major);
+    let mut potential_dot4 = false;
 
     loop {
         match state {
@@ -816,7 +817,10 @@ where
                         Some(Token::Dot) => match part {
                             Part::Major => unreachable!(),
                             Part::Minor => State::Part(Part::Patch),
-                            Part::Patch => State::PreRelease,
+                            Part::Patch => {
+                                potential_dot4 = true;
+                                State::PreRelease
+                            }
                         },
                         Some(Token::Hyphen) => State::PreRelease,
                         Some(Token::Plus) => State::Build,
@@ -837,6 +841,11 @@ where
                     }
                     // regular pre-release part
                     Some(Token::Number(v)) => {
+                        if potential_dot4 {
+                            tokens = tokens.stash(Token::Number(v));
+                            state = State::Build;
+                            continue;
+                        }
                         version.add_pre_release_num(v);
                     }
                     // unexpected end
@@ -848,6 +857,7 @@ where
                         return Err(ErrorSpan::unexpected(tokens.span));
                     }
                 }
+                potential_dot4 = false;
                 state = match tokens.next() {
                     None => return finish(version),
                     Some(Token::Dot) | Some(Token::Hyphen) => State::PreRelease,
@@ -1178,8 +1188,9 @@ mod tests {
     #[test_case("1.9.3.RC1" => Ok(vers!(1 . 9 . 3 - "RC1")))]
     #[test_case("1.9.RC2" => Ok(vers!(1 . 9 . 0 - "RC2")))]
     #[test_case("1.RC3" => Ok(vers!(1 . 0 . 0 - "RC3")))]
-    #[test_case("1.3.3.7" => Ok(vers!(1 . 3 . 3 - 7)))] // This should really be a + build
-    #[test_case("5.9.0.202009080501-r" => Ok(vers!(5 . 9 . 0 - 202009080501 - "r")))] // This should really be a + build
+    #[test_case("1.3.3-7" => Ok(vers!(1 . 3 . 3 - 7)))]
+    #[test_case("5.9.0-202009080501-r" => Ok(vers!(5 . 9 . 0 - 202009080501 - "r")))]
+    #[test_case("1.2.3.RC.4" => Ok(vers!(1 . 2 . 3 - "RC" - 4)))]
     fn test_pre_release(input: &str) -> Result<Version<'_>, Error<'_>> {
         parse::<Version<'_>>(input)
     }
@@ -1192,6 +1203,8 @@ mod tests {
     #[test_case("1.4+build02" => Ok(vers!(1 . 4 . 0 + "build02")))]
     #[test_case("1+build03" => Ok(vers!(1 . 0 . 0 + "build03")))]
     #[test_case("7.2.0+28-2f9fb552" => Ok(vers!(7 . 2 . 0 + 28 -  "2f9fb552" )))]
+    #[test_case("1.3.3.7" => Ok(vers!(1 . 3 . 3 + 7)))]
+    #[test_case("5.9.0.202009080501-r" => Ok(vers!(5 . 9 . 0 + 202009080501 - "r")))]
     fn test_build(input: &str) -> Result<Version<'_>, Error<'_>> {
         parse::<Version<'_>>(input)
     }
