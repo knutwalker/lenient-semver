@@ -20,24 +20,24 @@
 //! ```rust
 //! use semver::Version;
 //!
-//! let version = lenient_semver::parse("1.2.3");
+//! let version = lenient_semver::parse::<Version>("1.2.3");
 //! assert_eq!(version, Ok(Version::new(1, 2, 3)));
 //!
 //! // examples of a version that would not be accepted by semver_parser
 //! assert_eq!(
-//!     lenient_semver::parse("1.2.M1").unwrap(),
+//!     lenient_semver::parse::<Version>("1.2.M1").unwrap(),
 //!     Version::parse("1.2.0-M1").unwrap()
 //! );
 //! assert!(Version::parse("1.2.M1").is_err());
 //!
 //! assert_eq!(
-//!     lenient_semver::parse("1").unwrap(),
+//!     lenient_semver::parse::<Version>("1").unwrap(),
 //!     Version::parse("1.0.0").unwrap()
 //! );
 //! assert!(Version::parse("1").is_err());
 //!
 //! assert_eq!(
-//!     lenient_semver::parse("1.2.3.Final").unwrap(),
+//!     lenient_semver::parse::<Version>("1.2.3.Final").unwrap(),
 //!     Version::parse("1.2.3+Final").unwrap()
 //! );
 //! assert!(Version::parse("1.2.3.Final").is_err());
@@ -73,7 +73,6 @@
     while_true
 )]
 
-use semver::{Identifier, Version};
 use std::{fmt::Display, ops::Range};
 
 /// Parse a string slice into a Version.
@@ -93,30 +92,244 @@ use std::{fmt::Display, ops::Range};
 /// ```rust
 /// use semver::Version;
 ///
-/// let version = lenient_semver::parse("1.2.3");
+/// let version = lenient_semver::parse::<Version>("1.2.3");
 /// assert_eq!(version, Ok(Version::new(1, 2, 3)));
 ///
 /// // examples of a version that would not be accepted by semver_parser
 /// assert_eq!(
-///     lenient_semver::parse("1.2.M1").unwrap(),
+///     lenient_semver::parse::<Version>("1.2.M1").unwrap(),
 ///     Version::parse("1.2.0-M1").unwrap()
 /// );
 /// assert!(Version::parse("1.2.M1").is_err());
 ///
 /// assert_eq!(
-///     lenient_semver::parse("1").unwrap(),
+///     lenient_semver::parse::<Version>("1").unwrap(),
 ///     Version::parse("1.0.0").unwrap()
 /// );
 /// assert!(Version::parse("1").is_err());
 ///
 /// assert_eq!(
-///     lenient_semver::parse("1.2.3.Final").unwrap(),
+///     lenient_semver::parse::<Version>("1.2.3.Final").unwrap(),
 ///     Version::parse("1.2.3+Final").unwrap()
 /// );
 /// assert!(Version::parse("1.2.3.Final").is_err());
 /// ```
-pub fn parse(input: &str) -> Result<Version, Error<'_>> {
-    parse_version(lex(input)).map_err(|ErrorSpan { error, span }| Error { input, span, error })
+pub fn parse<'input, V>(input: &'input str) -> Result<V::Out, Error<'input>>
+where
+    V: VersionBuilder<'input>,
+{
+    parse_version::<_, V>(lex(input)).map_err(|ErrorSpan { error, span }| Error {
+        input,
+        span,
+        error,
+    })
+}
+
+/// Trait to abstract over version building.
+///
+/// The methods to implement in this trait represent the components of [`semver::Version`],
+/// but allow for parsing into a custom type.
+///
+/// The trait is generic over the lifetime of the input string, so that one could
+/// parse into a version without having to allocate.
+pub trait VersionBuilder<'input> {
+    /// The return type of the final version.
+    type Out;
+
+    /// Construct a new version builder.
+    ///
+    /// The function must not fail and the version (if returned from [`VersionBuilder::build`] at this point)
+    /// should represent something akin to "0.0.0"
+    fn new() -> Self;
+
+    /// Set the major version component.
+    ///
+    /// This method is the only required component and will be called
+    /// before [`VersionBuilder::build`].
+    fn set_major(&mut self, major: u64);
+
+    /// Set the minor version component.
+    ///
+    /// This component is optional and might not be called
+    /// before [`VersionBuilder::build`].
+    fn set_minor(&mut self, minor: u64);
+
+    /// Set the patch version component.
+    ///
+    /// This component is optional and might not be called
+    /// before [`VersionBuilder::build`].
+    fn set_patch(&mut self, patch: u64);
+
+    /// Add an alpha-numeric pre-release identifier.
+    ///
+    /// This component is optional and might not be called
+    /// before [`VersionBuilder::build`].
+    ///
+    /// This method might be called multiple times.
+    fn add_pre_release_str(&mut self, pre_release: &'input str);
+
+    /// Add a numeric pre-release identifier.
+    ///
+    /// This component is optional and might not be called
+    /// before [`VersionBuilder::build`].
+    ///
+    /// This method might be called multiple times.
+    fn add_pre_release_num(&mut self, pre_release: u64);
+
+    /// Add an alpha-numeric build identifier.
+    ///
+    /// This component is optional and might not be called
+    /// before [`VersionBuilder::build`].
+    ///
+    /// This method might be called multiple times.
+    fn add_build_str(&mut self, build: &'input str);
+
+    /// Add a numeric build identifier.
+    ///
+    /// This component is optional and might not be called
+    /// before [`VersionBuilder::build`].
+    ///
+    /// This method might be called multiple times.
+    fn add_build_num(&mut self, build: u64);
+
+    /// Construct the final version.
+    fn build(self) -> Self::Out;
+}
+
+#[cfg(feature = "semver")]
+impl<'input> VersionBuilder<'input> for semver::Version {
+    type Out = Self;
+
+    fn new() -> Self {
+        semver::Version::new(0, 0, 0)
+    }
+
+    fn set_major(&mut self, major: u64) {
+        self.major = major;
+    }
+
+    fn set_minor(&mut self, minor: u64) {
+        self.minor = minor;
+    }
+
+    fn set_patch(&mut self, patch: u64) {
+        self.patch = patch;
+    }
+
+    fn add_pre_release_str(&mut self, pre_release: &'input str) {
+        self.pre
+            .push(semver::Identifier::AlphaNumeric(pre_release.into()))
+    }
+
+    fn add_pre_release_num(&mut self, pre_release: u64) {
+        self.pre.push(semver::Identifier::Numeric(pre_release))
+    }
+
+    fn add_build_str(&mut self, build: &'input str) {
+        self.build
+            .push(semver::Identifier::AlphaNumeric(build.into()))
+    }
+
+    fn add_build_num(&mut self, build: u64) {
+        self.build.push(semver::Identifier::Numeric(build))
+    }
+
+    fn build(self) -> Self::Out {
+        self
+    }
+}
+
+#[cfg(any(test, feature = "version_lite"))]
+/// Represents a version number.
+///
+/// This is a lightweight clone of `semver::Version`.
+/// Without any of the bells and whistles of that type.
+///
+/// The version is bound to the lifetime of the input string.
+///
+/// # Correctness Warning
+///
+/// This version implements [`PartialOrd`] and [`PartialEq`] by deriving them,
+/// which results in implementations that do not conform to the
+/// semantic version spec.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct VersionLite<'input> {
+    /// The major version.
+    pub major: u64,
+    /// The minor version.
+    pub minor: u64,
+    /// The patch version.
+    pub patch: u64,
+    /// The pre-release metadata.
+    pub pre: Vec<IdentifierLite<'input>>,
+    /// The build metadata.
+    pub build: Vec<IdentifierLite<'input>>,
+}
+
+#[cfg(any(test, feature = "version_lite"))]
+/// An identifier in the pre-release or build metadata.
+///
+/// This is clone of `semver::Identifier` while not requiring a String allocation.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum IdentifierLite<'input> {
+    /// An identifier that's solely numbers.
+    Numeric(u64),
+    /// An identifier with letters and numbers.
+    AlphaNumeric(&'input str),
+}
+
+#[cfg(any(test, feature = "version_lite"))]
+impl Default for VersionLite<'_> {
+    fn default() -> Self {
+        VersionLite {
+            major: 0,
+            minor: 0,
+            patch: 0,
+            pre: Vec::new(),
+            build: Vec::new(),
+        }
+    }
+}
+
+#[cfg(any(test, feature = "version_lite"))]
+impl<'input> VersionBuilder<'input> for VersionLite<'input> {
+    type Out = Self;
+
+    fn new() -> Self {
+        VersionLite::default()
+    }
+
+    fn set_major(&mut self, major: u64) {
+        self.major = major;
+    }
+
+    fn set_minor(&mut self, minor: u64) {
+        self.minor = minor;
+    }
+
+    fn set_patch(&mut self, patch: u64) {
+        self.patch = patch;
+    }
+
+    fn add_pre_release_str(&mut self, pre_release: &'input str) {
+        self.pre.push(IdentifierLite::AlphaNumeric(pre_release))
+    }
+
+    fn add_pre_release_num(&mut self, pre_release: u64) {
+        self.pre.push(IdentifierLite::Numeric(pre_release))
+    }
+
+    fn add_build_str(&mut self, build: &'input str) {
+        self.build.push(IdentifierLite::AlphaNumeric(build))
+    }
+
+    fn add_build_num(&mut self, build: u64) {
+        self.build.push(IdentifierLite::Numeric(build))
+    }
+
+    fn build(self) -> Self::Out {
+        self
+    }
 }
 
 /// Possible errors that happen during parsing
@@ -127,10 +340,10 @@ pub fn parse(input: &str) -> Result<Version, Error<'_>> {
 /// ```rust
 /// use semver::Version;
 ///
-/// let error = lenient_semver::parse("1+").unwrap_err();
+/// let error = lenient_semver::parse::<Version>("1+").unwrap_err();
 /// assert_eq!(error.to_string(), "Could not parse the build identifier: No input");
 ///
-/// let error = lenient_semver::parse("1!").unwrap_err();
+/// let error = lenient_semver::parse::<Version>("1!").unwrap_err();
 /// assert_eq!(error.to_string(), "Unexpected `!`");
 /// ```
 #[derive(Debug, PartialEq, Eq)]
@@ -158,7 +371,7 @@ impl<'input> Error<'input> {
     /// # Examples
     ///
     /// ```rust
-    /// let error = lenient_semver::parse("1+").unwrap_err();
+    /// let error = lenient_semver::parse::<semver::Version>("1+").unwrap_err();
     /// assert_eq!(error.input(), "1+");
     /// ```
     #[inline]
@@ -171,7 +384,7 @@ impl<'input> Error<'input> {
     /// # Examples
     ///
     /// ```rust
-    /// let error = lenient_semver::parse("1+").unwrap_err();
+    /// let error = lenient_semver::parse::<semver::Version>("1+").unwrap_err();
     /// assert_eq!(error.error_span(), 1..2);
     /// ```
     #[inline]
@@ -185,27 +398,27 @@ impl<'input> Error<'input> {
     ///
     /// ```rust
     /// assert_eq!(
-    ///     lenient_semver::parse("").unwrap_err().error_kind(),
+    ///     lenient_semver::parse::<semver::Version>("").unwrap_err().error_kind(),
     ///     lenient_semver::ErrorKind::MissingMajorNumber
     /// );
     /// assert_eq!(
-    ///     lenient_semver::parse("1.").unwrap_err().error_kind(),
+    ///     lenient_semver::parse::<semver::Version>("1.").unwrap_err().error_kind(),
     ///     lenient_semver::ErrorKind::MissingMinorNumber
     /// );
     /// assert_eq!(
-    ///     lenient_semver::parse("1.2.").unwrap_err().error_kind(),
+    ///     lenient_semver::parse::<semver::Version>("1.2.").unwrap_err().error_kind(),
     ///     lenient_semver::ErrorKind::MissingPatchNumber
     /// );
     /// assert_eq!(
-    ///     lenient_semver::parse("1-").unwrap_err().error_kind(),
+    ///     lenient_semver::parse::<semver::Version>("1-").unwrap_err().error_kind(),
     ///     lenient_semver::ErrorKind::MissingPreRelease
     /// );
     /// assert_eq!(
-    ///     lenient_semver::parse("1+").unwrap_err().error_kind(),
+    ///     lenient_semver::parse::<semver::Version>("1+").unwrap_err().error_kind(),
     ///     lenient_semver::ErrorKind::MissingBuild
     /// );
     /// assert_eq!(
-    ///     lenient_semver::parse("1!").unwrap_err().error_kind(),
+    ///     lenient_semver::parse::<semver::Version>("1!").unwrap_err().error_kind(),
     ///     lenient_semver::ErrorKind::UnexpectedInput
     /// );
     /// ```
@@ -235,7 +448,7 @@ impl<'input> Error<'input> {
     /// # Examples
     ///
     /// ```rust
-    /// let error = lenient_semver::parse("1+").unwrap_err();
+    /// let error = lenient_semver::parse::<semver::Version>("1+").unwrap_err();
     /// assert_eq!(error.erroneous_input(), "+");
     /// ```
     #[inline]
@@ -248,14 +461,14 @@ impl<'input> Error<'input> {
     /// # Examples
     ///
     /// ```rust
-    /// let error = lenient_semver::parse("1.").unwrap_err();
+    /// let error = lenient_semver::parse::<semver::Version>("1.").unwrap_err();
     /// assert_eq!(error.error_line(), String::from("Could not parse the minor identifier: No input"));
     /// ```
     ///
     /// This is equivalent to the [`Display`] implementation, which can be further customized with format specifiers.
     ///
     /// ```rust
-    /// let error = lenient_semver::parse("1?").unwrap_err();
+    /// let error = lenient_semver::parse::<semver::Version>("1?").unwrap_err();
     /// assert_eq!(format!("{:!^42}", error), String::from("!!!!!!!!!!!!!!Unexpected `?`!!!!!!!!!!!!!!"));
     /// ```
     pub fn error_line(&self) -> String {
@@ -277,10 +490,10 @@ impl<'input> Error<'input> {
     /// # Examples
     ///
     /// ```rust
-    /// let error = lenient_semver::parse("foo").unwrap_err();
+    /// let error = lenient_semver::parse::<semver::Version>("foo").unwrap_err();
     /// assert_eq!(error.indicate_erroneous_input(), "^^^");
     ///
-    /// let error = lenient_semver::parse("1.2.3 bar").unwrap_err();
+    /// let error = lenient_semver::parse::<semver::Version>("1.2.3 bar").unwrap_err();
     /// assert_eq!(error.indicate_erroneous_input(), "~~~~~~^^^");
     /// ```
     pub fn indicate_erroneous_input(&self) -> String {
@@ -522,13 +735,14 @@ where
     }
 }
 
-fn parse_version<'input, I>(tokens: I) -> Result<Version, ErrorSpan>
+fn parse_version<'input, I, V>(tokens: I) -> Result<V::Out, ErrorSpan>
 where
     I: IntoIterator<Item = TokenSpan<'input>>,
+    V: VersionBuilder<'input>,
 {
     let tokens = tokens.into_iter();
     let mut tokens = Tokens::new(tokens);
-    let mut version = Version::new(0, 0, 0);
+    let mut version = V::new();
     let mut state = State::Part(Part::Major);
 
     loop {
@@ -539,9 +753,9 @@ where
                 // skip initial whitespace
                 Some(Token::Whitespace) => {}
                 Some(token) => {
-                    version.major = parse_number(token, Part::Major, tokens.span)?;
+                    version.set_major(parse_number(token, Part::Major, tokens.span)?);
                     state = match tokens.next() {
-                        None => return Ok(version),
+                        None => return finish(version),
                         Some(Token::Dot) => State::Part(Part::Minor),
                         Some(Token::Hyphen) => State::PreRelease,
                         Some(Token::Plus) => State::Build,
@@ -554,7 +768,7 @@ where
             State::Part(part) => match tokens.next() {
                 // things like 1.Final, early stop with a single build identifier
                 Some(Token::Alpha(v)) if is_release_identifier(v) => {
-                    version.build.push(Identifier::AlphaNumeric(v.into()));
+                    version.add_build_str(v);
                     return finish_tokens(tokens, version);
                 }
                 // any alpha token skips right into pre-release parsing
@@ -571,11 +785,11 @@ where
                     let num = parse_number(token, part, tokens.span)?;
                     match part {
                         Part::Major => unreachable!(),
-                        Part::Minor => version.minor = num,
-                        Part::Patch => version.patch = num,
+                        Part::Minor => version.set_minor(num),
+                        Part::Patch => version.set_patch(num),
                     }
                     state = match tokens.next() {
-                        None => return Ok(version),
+                        None => return finish(version),
                         Some(Token::Dot) => match part {
                             Part::Major => unreachable!(),
                             Part::Minor => State::Part(Part::Patch),
@@ -591,16 +805,16 @@ where
                 match tokens.next() {
                     // things like 1.2.3.Final, need to interpret this as a build identifier
                     Some(Token::Alpha(v)) if is_release_identifier(v) => {
-                        version.build.push(Identifier::AlphaNumeric(v.into()));
+                        version.add_build_str(v);
                         return finish_tokens(tokens, version);
                     }
                     // regular pre-release part
                     Some(Token::Alpha(v)) => {
-                        version.pre.push(Identifier::AlphaNumeric(v.into()));
+                        version.add_pre_release_str(v);
                     }
                     // regular pre-release part
                     Some(Token::Number(v)) => {
-                        version.pre.push(Identifier::Numeric(v));
+                        version.add_pre_release_num(v);
                     }
                     // unexpected end
                     Some(Token::Whitespace) | None => {
@@ -612,7 +826,7 @@ where
                     }
                 }
                 state = match tokens.next() {
-                    None => return Ok(version),
+                    None => return finish(version),
                     Some(Token::Dot) | Some(Token::Hyphen) => State::PreRelease,
                     Some(Token::Plus) => State::Build,
                     Some(token) => return finish_tokens(tokens.stash(token), version),
@@ -624,11 +838,11 @@ where
                     match tokens.next() {
                         // regular build part
                         Some(Token::Alpha(v)) => {
-                            version.build.push(Identifier::AlphaNumeric(v.into()));
+                            version.add_build_str(v);
                         }
                         // regular build part
                         Some(Token::Number(v)) => {
-                            version.build.push(Identifier::Numeric(v));
+                            version.add_build_num(v);
                         }
                         // unexpected end
                         Some(Token::Whitespace) | None => {
@@ -640,7 +854,7 @@ where
                         }
                     }
                     match tokens.next() {
-                        None => return Ok(version),
+                        None => return finish(version),
                         Some(Token::Dot) | Some(Token::Hyphen) => {
                             // try next build token
                         }
@@ -663,9 +877,10 @@ fn parse_number_inner<'input>(token: Token<'input>, part: Part) -> Result<u64, E
     }
 }
 
-fn finish_tokens<'input, I, T>(mut tokens: Tokens<'input, I>, value: T) -> Result<T, ErrorSpan>
+fn finish_tokens<'input, I, V>(mut tokens: Tokens<'input, I>, value: V) -> Result<V::Out, ErrorSpan>
 where
     I: Iterator<Item = TokenSpan<'input>>,
+    V: VersionBuilder<'input>,
 {
     while let Some(token) = tokens.next() {
         match token {
@@ -673,7 +888,15 @@ where
             _ => return Err(ErrorSpan::unexpected(tokens.span)),
         }
     }
-    Ok(value)
+    finish(value)
+}
+
+#[inline]
+fn finish<'input, V>(value: V) -> Result<V::Out, ErrorSpan>
+where
+    V: VersionBuilder<'input>,
+{
+    Ok(value.build())
 }
 
 fn is_release_identifier(v: &str) -> bool {
@@ -824,24 +1047,53 @@ impl<'input> Iterator for Lexer<'input> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use semver::Identifier;
     use test_case::test_case;
 
-    trait IntoIdentifier {
-        fn into_itentifier(self) -> Identifier;
-    }
+    #[cfg(feature = "semver")]
+    mod semver_helpers {
+        pub(super) use semver::{Identifier, Version as SemVer};
+        pub(super) type Version<'input> = SemVer;
 
-    impl IntoIdentifier for &str {
-        fn into_itentifier(self) -> Identifier {
-            Identifier::AlphaNumeric(self.into())
+        pub(super) trait IntoIdentifier {
+            fn into_itentifier(self) -> Identifier;
+        }
+
+        impl IntoIdentifier for &str {
+            fn into_itentifier(self) -> Identifier {
+                Identifier::AlphaNumeric(self.into())
+            }
+        }
+
+        impl IntoIdentifier for u64 {
+            fn into_itentifier(self) -> Identifier {
+                Identifier::Numeric(self)
+            }
         }
     }
 
-    impl IntoIdentifier for u64 {
-        fn into_itentifier(self) -> Identifier {
-            Identifier::Numeric(self)
+    #[cfg(not(feature = "semver"))]
+    mod semver_helpers {
+        pub(super) use super::{IdentifierLite as Identifier, VersionLite};
+        pub(super) type Version<'input> = VersionLite<'input>;
+
+        pub(super) trait IntoIdentifier<'input> {
+            fn into_itentifier(self) -> Identifier<'input>;
+        }
+
+        impl<'input> IntoIdentifier<'input> for &'input str {
+            fn into_itentifier(self) -> Identifier<'input> {
+                Identifier::AlphaNumeric(self)
+            }
+        }
+
+        impl<'input> IntoIdentifier<'input> for u64 {
+            fn into_itentifier(self) -> Identifier<'input> {
+                Identifier::Numeric(self)
+            }
         }
     }
+
+    use semver_helpers::*;
 
     macro_rules! vers {
         ($major:literal . $minor:literal . $patch:literal) => {
@@ -874,7 +1126,7 @@ mod tests {
             }
         };
 
-        ($major:literal . $minor:literal . $patch:literal pre $( $pre:literal )-+ ; build $( $build:literal )-+ ) => {
+        ($major:literal . $minor:literal . $patch:literal - $( $pre:literal )-+ + $( $build:literal )-+ ) => {
             Version {
                 major: $major,
                 minor: $minor,
@@ -889,8 +1141,8 @@ mod tests {
     #[test_case("1.2" => Ok(vers!(1 . 2 . 0)); "major.minor only")]
     #[test_case("1.2.3" => Ok(vers!(1 . 2 . 3)); "major.minor.patch")]
     #[test_case("  1.2.3  " => Ok(vers!(1 . 2 . 3)); "with whitespace")]
-    fn test_simple(input: &str) -> Result<Version, Error<'_>> {
-        parse(input)
+    fn test_simple(input: &str) -> Result<Version<'_>, Error<'_>> {
+        parse::<Version<'_>>(input)
     }
 
     #[test_case("1.2.3-alpha1" => Ok(vers!(1 . 2 . 3 - "alpha1")))]
@@ -905,8 +1157,8 @@ mod tests {
     #[test_case("1.RC3" => Ok(vers!(1 . 0 . 0 - "RC3")))]
     #[test_case("1.3.3.7" => Ok(vers!(1 . 3 . 3 - 7)))] // This should really be a + build
     #[test_case("5.9.0.202009080501-r" => Ok(vers!(5 . 9 . 0 - 202009080501 - "r")))] // This should really be a + build
-    fn test_pre_release(input: &str) -> Result<Version, Error<'_>> {
-        parse(input)
+    fn test_pre_release(input: &str) -> Result<Version<'_>, Error<'_>> {
+        parse::<Version<'_>>(input)
     }
 
     #[test_case("1.2.3+build1" => Ok(vers!(1 . 2 . 3 + "build1")))]
@@ -917,16 +1169,16 @@ mod tests {
     #[test_case("1.4+build02" => Ok(vers!(1 . 4 . 0 + "build02")))]
     #[test_case("1+build03" => Ok(vers!(1 . 0 . 0 + "build03")))]
     #[test_case("7.2.0+28-2f9fb552" => Ok(vers!(7 . 2 . 0 + 28 -  "2f9fb552" )))]
-    fn test_build(input: &str) -> Result<Version, Error<'_>> {
-        parse(input)
+    fn test_build(input: &str) -> Result<Version<'_>, Error<'_>> {
+        parse::<Version<'_>>(input)
     }
 
-    #[test_case("1.2.3-alpha1+build5" => Ok(vers!(1 . 2 . 3 pre "alpha1" ; build "build5" )))]
-    #[test_case("   1.2.3-alpha2+build6   " => Ok(vers!(1 . 2 . 3 pre "alpha2" ; build "build6" )))]
-    #[test_case("1.2.3-1.alpha1.9+build5.7.3aedf  " => Ok(vers!(1 . 2 . 3 pre 1 - "alpha1" - 9 ; build "build5" - 7 - "3aedf" )))]
-    #[test_case("0.4.0-beta.1+0851523" => Ok(vers!(0 . 4 . 0 pre "beta" - 1 ; build "0851523" )))]
-    fn test_combined(input: &str) -> Result<Version, Error<'_>> {
-        parse(input)
+    #[test_case("1.2.3-alpha1+build5" => Ok(vers!(1 . 2 . 3 - "alpha1" + "build5" )))]
+    #[test_case("   1.2.3-alpha2+build6   " => Ok(vers!(1 . 2 . 3 - "alpha2" + "build6" )))]
+    #[test_case("1.2.3-1.alpha1.9+build5.7.3aedf  " => Ok(vers!(1 . 2 . 3 - 1 - "alpha1" - 9 + "build5" - 7 - "3aedf" )))]
+    #[test_case("0.4.0-beta.1+0851523" => Ok(vers!(0 . 4 . 0 - "beta" - 1 + 851523 )))] // This should really be an alphanum
+    fn test_combined(input: &str) -> Result<Version<'_>, Error<'_>> {
+        parse::<Version<'_>>(input)
     }
 
     #[test_case("2.7.3.Final" => Ok(vers!(2 . 7 . 3 + "Final" )); "full dot final")]
@@ -947,16 +1199,16 @@ mod tests {
     #[test_case("2.Release" => Ok(vers!(2 . 0 . 0 + "Release" )); "major dot release")]
     #[test_case("2-Release" => Ok(vers!(2 . 0 . 0 + "Release" )); "major hyphen release")]
     #[test_case("2+Release" => Ok(vers!(2 . 0 . 0 + "Release" )); "major plus release")]
-    fn test_with_release_identifier(input: &str) -> Result<Version, Error<'_>> {
-        parse(input)
+    fn test_with_release_identifier(input: &str) -> Result<Version<'_>, Error<'_>> {
+        parse::<Version<'_>>(input)
     }
 
     #[test_case("2020.4.9" => Ok(vers!(2020 . 4 . 9)))]
     #[test_case("2020.04.09" => Ok(vers!(2020 . 4 . 9)))]
     #[test_case("2020.4" => Ok(vers!(2020 . 4 . 0)))]
     #[test_case("2020.04" => Ok(vers!(2020 . 4 . 0)))]
-    fn test_date_versions(input: &str) -> Result<Version, Error<'_>> {
-        parse(input)
+    fn test_date_versions(input: &str) -> Result<Version<'_>, Error<'_>> {
+        parse::<Version<'_>>(input)
     }
 
     #[test_case("" => Err(ErrorSpan::new(ErrorType::Missing(Segment::Part(Part::Major)), Span::new(0, 0))))]
@@ -977,8 +1229,8 @@ mod tests {
     #[test_case("123456789012345678901234567890" => Err(ErrorSpan::new(ErrorType::NotANumber(Part::Major), Span::new(0, 30))))]
     #[test_case("1 abc" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(2, 5))))]
     #[test_case("1.2.3 abc" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 9))))]
-    fn test_simple_errors(input: &str) -> Result<Version, ErrorSpan> {
-        parse_version(lex(input))
+    fn test_simple_errors(input: &str) -> Result<Version<'_>, ErrorSpan> {
+        parse_version::<_, Version<'_>>(lex(input))
     }
 
     #[test_case("" => r#"Could not parse the major identifier: No input
@@ -1018,7 +1270,7 @@ mod tests {
 |    ~~~~~~^^^
 "#)]
     fn test_full_errors(input: &str) -> String {
-        format!("{:#}", parse(input).unwrap_err())
+        format!("{:#}", parse::<Version<'_>>(input).unwrap_err())
     }
 
     #[test]
@@ -1127,7 +1379,7 @@ mod tests {
         ];
 
         assert_eq!(
-            parse_version(tokens.into_iter().map(|t| TokenSpan {
+            parse_version::<_, Version<'_>>(tokens.into_iter().map(|t| TokenSpan {
                 token: t,
                 span: Span::new(1, 2)
             })),
@@ -1137,13 +1389,13 @@ mod tests {
                 patch: 3,
                 pre: vec![
                     Identifier::Numeric(1),
-                    Identifier::AlphaNumeric(String::from("alpha1")),
+                    Identifier::AlphaNumeric("alpha1".into()),
                     Identifier::Numeric(9),
                 ],
                 build: vec![
-                    Identifier::AlphaNumeric(String::from("build5")),
+                    Identifier::AlphaNumeric("build5".into()),
                     Identifier::Numeric(7),
-                    Identifier::AlphaNumeric(String::from("3aedf")),
+                    Identifier::AlphaNumeric("3aedf".into()),
                 ],
             })
         );
@@ -1182,13 +1434,14 @@ mod tests {
         assert!(is_release_identifier(v));
     }
 
-    #[test_case("1.2.3" => parse("1.2.3.Final"); "dot final")]
-    #[test_case("1.2.3" => parse("1.2.3.Release"); "dot release")]
-    #[test_case("1.2.3" => parse("1.2.3-Final"); "hyphen final")]
-    #[test_case("1.2.3" => parse("1.2.3-Release"); "hyphen release")]
-    #[test_case("1.2.3" => parse("1.2.3+Final"); "plus final")]
-    #[test_case("1.2.3" => parse("1.2.3+Release"); "plus release")]
-    fn test_release_cmp(v: &str) -> Result<Version, Error<'_>> {
-        parse(v)
+    #[cfg_attr(feature = "semver", test_case("1.2.3" => parse::<Version<'_>>("1.2.3.Final"); "dot final"))]
+    #[cfg_attr(feature = "semver", test_case("1.2.3" => parse::<Version<'_>>("1.2.3.Release"); "dot release"))]
+    #[cfg_attr(feature = "semver", test_case("1.2.3" => parse::<Version<'_>>("1.2.3-Final"); "hyphen final"))]
+    #[cfg_attr(feature = "semver", test_case("1.2.3" => parse::<Version<'_>>("1.2.3-Release"); "hyphen release"))]
+    #[cfg_attr(feature = "semver", test_case("1.2.3" => parse::<Version<'_>>("1.2.3+Final"); "plus final"))]
+    #[cfg_attr(feature = "semver", test_case("1.2.3" => parse::<Version<'_>>("1.2.3+Release"); "plus release"))]
+    #[cfg(feature = "semver")]
+    fn test_release_cmp(v: &str) -> Result<Version<'_>, Error<'_>> {
+        parse::<Version<'_>>(v)
     }
 }
