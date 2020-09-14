@@ -332,6 +332,29 @@ impl<'input> VersionBuilder<'input> for VersionLite<'input> {
     }
 }
 
+#[cfg(all(feature = "semver", feature = "version_lite"))]
+impl From<VersionLite<'_>> for semver::Version {
+    fn from(v: VersionLite<'_>) -> Self {
+        semver::Version {
+            major: v.major,
+            minor: v.minor,
+            patch: v.patch,
+            pre: v.pre.into_iter().map(From::from).collect(),
+            build: v.build.into_iter().map(From::from).collect(),
+        }
+    }
+}
+
+#[cfg(all(feature = "semver", feature = "version_lite"))]
+impl From<IdentifierLite<'_>> for semver::Identifier {
+    fn from(id: IdentifierLite<'_>) -> Self {
+        match id {
+            IdentifierLite::Numeric(v) => semver::Identifier::Numeric(v),
+            IdentifierLite::AlphaNumeric(v) => semver::Identifier::AlphaNumeric(v.into()),
+        }
+    }
+}
+
 /// Possible errors that happen during parsing
 /// and the location of the token where the error occurred.
 ///
@@ -1443,5 +1466,26 @@ mod tests {
     #[cfg(feature = "semver")]
     fn test_release_cmp(v: &str) -> Result<Version<'_>, Error<'_>> {
         parse::<Version<'_>>(v)
+    }
+
+    #[cfg_attr(all(feature = "semver", feature = "version_lite"), test_case("1.2.3"))]
+    #[cfg_attr(
+        all(feature = "semver", feature = "version_lite"),
+        test_case("1.2.3-alpha01")
+    )]
+    #[cfg_attr(
+        all(feature = "semver", feature = "version_lite"),
+        test_case("1.2.3+build02")
+    )]
+    #[cfg_attr(
+        all(feature = "semver", feature = "version_lite"),
+        test_case("1.2.3-beta03+r4")
+    )]
+    #[cfg(all(feature = "semver", feature = "version_lite"))]
+    fn test_semver_and_lite(v: &str) {
+        let sem = parse::<SemVer>(v).unwrap();
+        let lite = parse::<VersionLite<'_>>(v).unwrap();
+        let sem_from_lite = SemVer::from(lite);
+        assert_eq!(sem, sem_from_lite);
     }
 }
