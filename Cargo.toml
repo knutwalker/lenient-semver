@@ -1,6 +1,6 @@
 [package]
 name = "lenient_semver"
-version = "0.2.0"
+version = "0.2.1-alpha.0"
 description = "Lenient parser for Semantic Version numbers."
 authors = ["Paul Horn <developer@knutwalker.de>"]
 edition = "2018"
