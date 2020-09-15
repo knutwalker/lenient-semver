@@ -1,5 +1,7 @@
 // To render as railroad, paste the content of this file at
 // https://tabatkins.github.io/railroad-diagrams/generator.html
+// For documentation on what this means, visit
+// http://tabatkins.github.io/railroad-diagrams/
 Diagram(
   Stack(
     Sequence(
@@ -85,9 +87,17 @@ Diagram(
           Terminal('.'),
           Terminal('+'),
         ),
-        Choice(0,
+        Choice(1,
+          // regular numbers
+          Sequence(
+            Comment("Only after ."),
+            OneOrMore(
+              NonTerminal('number'),
+              Terminal('.')
+            )
+          ),
           Terminal('Final'),
-          Terminal('Release')
+          Terminal('Release'),
         )
       ),
     ),
