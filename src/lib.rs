@@ -792,152 +792,417 @@ where
     V: VersionBuilder<'input>,
 {
     let tokens = tokens.into_iter();
-    let mut tokens = Tokens::new(tokens);
-    let mut version = V::new();
-    let mut state = State::Part(Part::Major);
-    let mut leading_v = false;
-    let mut potential_dot4 = false;
+    let tokens = Tokens::new(tokens);
+    let version = V::new();
 
-    loop {
-        match state {
-            State::Part(Part::Major) => match tokens.next() {
-                // unexpected end
-                None => return Err(ErrorSpan::missing_part(Part::Major, tokens.span)),
-                // skip initial whitespace
-                Some(Token::Whitespace) => {}
-                // Skip leading v that is a separate token
-                Some(Token::Alpha(v)) if !leading_v && (v == "v" || v == "V") => {
-                    leading_v = true;
-                }
-                Some(token) => {
-                    version.set_major(parse_number(token, !leading_v, Part::Major, tokens.span)?);
-                    state = match tokens.next() {
-                        None => return finish(version),
-                        Some(Token::Dot) => State::Part(Part::Minor),
-                        Some(Token::Hyphen) => State::PreRelease,
-                        Some(Token::Plus) => State::Build,
-                        Some(token) => {
-                            return finish_tokens(tokens.stash(token), version);
-                        }
-                    };
-                }
-            },
-            State::Part(part) => match tokens.next() {
-                // things like 1.Final, early stop with a single build identifier
-                Some(Token::Alpha(v)) if is_release_identifier(v) => {
-                    version.add_build_str(v);
-                    return finish_tokens(tokens, version);
-                }
-                // any alpha token skips right into pre-release parsing
-                Some(Token::Alpha(v)) => {
-                    tokens = tokens.stash(Token::Alpha(v));
-                    state = State::PreRelease;
-                }
-                // unexpected end
-                Some(Token::Whitespace) | None => {
-                    return Err(ErrorSpan::missing_part(part, tokens.span))
-                }
-                // any other token is tried as a number
-                Some(token) => {
-                    let num = parse_number(token, false, part, tokens.span)?;
-                    match part {
-                        Part::Major => unreachable!(),
-                        Part::Minor => version.set_minor(num),
-                        Part::Patch => version.set_patch(num),
-                    }
-                    state = match tokens.next() {
-                        None => return finish(version),
-                        Some(Token::Dot) => match part {
-                            Part::Major => unreachable!(),
-                            Part::Minor => State::Part(Part::Patch),
-                            Part::Patch => {
-                                potential_dot4 = true;
-                                State::PreRelease
-                            }
-                        },
-                        Some(Token::Hyphen) => State::PreRelease,
-                        Some(Token::Plus) => State::Build,
-                        Some(token) => return finish_tokens(tokens.stash(token), version),
-                    };
-                }
-            },
-            State::PreRelease => {
-                match tokens.next() {
-                    // things like 1.2.3.Final, need to interpret this as a build identifier
-                    Some(Token::Alpha(v)) if is_release_identifier(v) => {
-                        version.add_build_str(v);
-                        return finish_tokens(tokens, version);
-                    }
-                    // regular pre-release part
-                    Some(Token::Alpha(v)) => {
-                        version.add_pre_release_str(v);
-                    }
-                    // leading zero numbers in pre-release are alphanum
-                    Some(Token::ZeroNum(v, _)) => {
-                        version.add_pre_release_str(v);
-                    }
-                    // regular pre-release part
-                    Some(Token::Number(v)) => {
-                        if potential_dot4 {
-                            tokens = tokens.stash(Token::Number(v));
-                            state = State::Build;
-                            continue;
-                        }
-                        version.add_pre_release_num(v);
-                    }
-                    // unexpected end
-                    Some(Token::Whitespace) | None => {
-                        return Err(ErrorSpan::missing_pre(tokens.span))
-                    }
-                    // any other token is invalid
-                    Some(_) => {
-                        return Err(ErrorSpan::unexpected(tokens.span));
-                    }
-                }
-                potential_dot4 = false;
-                state = match tokens.next() {
-                    None => return finish(version),
-                    Some(Token::Dot) | Some(Token::Hyphen) => State::PreRelease,
-                    Some(Token::Plus) => State::Build,
-                    Some(token) => return finish_tokens(tokens.stash(token), version),
-                };
+    return parse_leading_whitespace_or_v(tokens, version);
+
+    // let mut state = State::Part(Part::Major);
+    // let mut leading_v = false;
+    // let mut potential_dot4 = false;
+
+    // loop {
+    //     match state {
+    //         State::Part(Part::Major) => match tokens.next() {
+    //             // unexpected end
+    //             None => return Err(ErrorSpan::missing_part(Part::Major, tokens.span)),
+    //             // skip initial whitespace
+    //             Some(Token::Whitespace) => {}
+    //             // Skip leading v that is a separate token
+    //             Some(Token::Alpha(v)) if !leading_v && (v == "v" || v == "V") => {
+    //                 leading_v = true;
+    //             }
+    //             Some(token) => {
+    //                 version.set_major(parse_number(token, !leading_v, Part::Major, tokens.span)?);
+    //                 state = match tokens.next() {
+    //                     None => return finish(version),
+    //                     Some(Token::Dot) => State::Part(Part::Minor),
+    //                     Some(Token::Hyphen) => State::PreRelease,
+    //                     Some(Token::Plus) => State::Build,
+    //                     Some(token) => {
+    //                         return finish_tokens(tokens.stash(token), version);
+    //                     }
+    //                 };
+    //             }
+    //         },
+    //         State::Part(part) => match tokens.next() {
+    //             // things like 1.Final, early stop with a single build identifier
+    //             Some(Token::Alpha(v)) if is_release_identifier(v) => {
+    //                 version.add_build_str(v);
+    //                 return finish_tokens(tokens, version);
+    //             }
+    //             // any alpha token skips right into pre-release parsing
+    //             Some(Token::Alpha(v)) => {
+    //                 tokens = tokens.stash(Token::Alpha(v));
+    //                 state = State::PreRelease;
+    //             }
+    //             // unexpected end
+    //             Some(Token::Whitespace) | None => {
+    //                 return Err(ErrorSpan::missing_part(part, tokens.span))
+    //             }
+    //             // any other token is tried as a number
+    //             Some(token) => {
+    //                 let num = parse_number(token, false, part, tokens.span)?;
+    //                 match part {
+    //                     Part::Major => unreachable!(),
+    //                     Part::Minor => version.set_minor(num),
+    //                     Part::Patch => version.set_patch(num),
+    //                 }
+    //                 state = match tokens.next() {
+    //                     None => return finish(version),
+    //                     Some(Token::Dot) => match part {
+    //                         Part::Major => unreachable!(),
+    //                         Part::Minor => State::Part(Part::Patch),
+    //                         Part::Patch => {
+    //                             potential_dot4 = true;
+    //                             State::PreRelease
+    //                         }
+    //                     },
+    //                     Some(Token::Hyphen) => State::PreRelease,
+    //                     Some(Token::Plus) => State::Build,
+    //                     Some(token) => return finish_tokens(tokens.stash(token), version),
+    //                 };
+    //             }
+    //         },
+    //         State::PreRelease => {
+    //             match tokens.next() {
+    //                 // things like 1.2.3.Final, need to interpret this as a build identifier
+    //                 Some(Token::Alpha(v)) if is_release_identifier(v) => {
+    //                     version.add_build_str(v);
+    //                     return finish_tokens(tokens, version);
+    //                 }
+    //                 // regular pre-release part
+    //                 Some(Token::Alpha(v)) => {
+    //                     version.add_pre_release_str(v);
+    //                 }
+    //                 // leading zero numbers in pre-release are alphanum
+    //                 Some(Token::ZeroNum(v, _)) => {
+    //                     version.add_pre_release_str(v);
+    //                 }
+    //                 // regular pre-release part
+    //                 Some(Token::Number(v)) => {
+    //                     if potential_dot4 {
+    //                         tokens = tokens.stash(Token::Number(v));
+    //                         state = State::Build;
+    //                         continue;
+    //                     }
+    //                     version.add_pre_release_num(v);
+    //                 }
+    //                 // unexpected end
+    //                 Some(Token::Whitespace) | None => {
+    //                     return Err(ErrorSpan::missing_pre(tokens.span))
+    //                 }
+    //                 // any other token is invalid
+    //                 Some(_) => {
+    //                     return Err(ErrorSpan::unexpected(tokens.span));
+    //                 }
+    //             }
+    //             potential_dot4 = false;
+    //             state = match tokens.next() {
+    //                 None => return finish(version),
+    //                 Some(Token::Dot) | Some(Token::Hyphen) => State::PreRelease,
+    //                 Some(Token::Plus) => State::Build,
+    //                 Some(token) => return finish_tokens(tokens.stash(token), version),
+    //             };
+    //         }
+    //         State::Build => {
+    //             // inline last state as we never change it
+    //             loop {
+    //                 match tokens.next() {
+    //                     // regular build part
+    //                     Some(Token::Alpha(v)) => {
+    //                         version.add_build_str(v);
+    //                     }
+    //                     // leading zero numbers in build are alphanum
+    //                     Some(Token::ZeroNum(v, _)) => {
+    //                         version.add_build_str(v);
+    //                     }
+    //                     // regular build part
+    //                     Some(Token::Number(v)) => {
+    //                         version.add_build_num(v);
+    //                     }
+    //                     // unexpected end
+    //                     Some(Token::Whitespace) | None => {
+    //                         return Err(ErrorSpan::missing_build(tokens.span));
+    //                     }
+    //                     // any other token is invalid
+    //                     Some(_) => {
+    //                         return Err(ErrorSpan::unexpected(tokens.span));
+    //                     }
+    //                 }
+    //                 match tokens.next() {
+    //                     None => return finish(version),
+    //                     Some(Token::Dot) | Some(Token::Hyphen) => {
+    //                         // try next build token
+    //                     }
+    //                     Some(token) => return finish_tokens(tokens.stash(token), version),
+    //                 };
+    //             }
+    //         }
+    //     }
+    // }
+}
+
+fn parse_leading_whitespace_or_v<'input, I, V>(
+    mut tokens: Tokens<'input, I>,
+    version: V,
+) -> Result<V::Out, ErrorSpan>
+where
+    I: Iterator<Item = TokenSpan<'input>>,
+    V: VersionBuilder<'input>,
+{
+    while let Some(token) = tokens.next() {
+        match token {
+            // skip initial whitespace
+            Token::Whitespace => {}
+            // Skip leading v that is a separate token
+            Token::Alpha("v") | Token::Alpha("V") => {
+                return parse_leading_whitespace_with_v(tokens, version);
             }
-            State::Build => {
-                // inline last state as we never change it
-                loop {
-                    match tokens.next() {
-                        // regular build part
-                        Some(Token::Alpha(v)) => {
-                            version.add_build_str(v);
-                        }
-                        // leading zero numbers in build are alphanum
-                        Some(Token::ZeroNum(v, _)) => {
-                            version.add_build_str(v);
-                        }
-                        // regular build part
-                        Some(Token::Number(v)) => {
-                            version.add_build_num(v);
-                        }
-                        // unexpected end
-                        Some(Token::Whitespace) | None => {
-                            return Err(ErrorSpan::missing_build(tokens.span));
-                        }
-                        // any other token is invalid
-                        Some(_) => {
-                            return Err(ErrorSpan::unexpected(tokens.span));
-                        }
-                    }
-                    match tokens.next() {
-                        None => return finish(version),
-                        Some(Token::Dot) | Some(Token::Hyphen) => {
-                            // try next build token
-                        }
-                        Some(token) => return finish_tokens(tokens.stash(token), version),
-                    };
-                }
+            token => {
+                return parse_major(tokens.stash(token), version, false);
             }
         }
     }
+    // unexpected end
+    Err(ErrorSpan::missing_part(Part::Major, tokens.span))
+}
+
+fn parse_leading_whitespace_with_v<'input, I, V>(
+    mut tokens: Tokens<'input, I>,
+    version: V,
+) -> Result<V::Out, ErrorSpan>
+where
+    I: Iterator<Item = TokenSpan<'input>>,
+    V: VersionBuilder<'input>,
+{
+    while let Some(token) = tokens.next() {
+        match token {
+            // skip initial whitespace
+            Token::Whitespace => {}
+            token => {
+                return parse_major(tokens.stash(token), version, true);
+            }
+        }
+    }
+    // unexpected end
+    Err(ErrorSpan::missing_part(Part::Major, tokens.span))
+}
+
+fn parse_major<'input, I, V>(
+    mut tokens: Tokens<'input, I>,
+    mut version: V,
+    leading_v: bool,
+) -> Result<V::Out, ErrorSpan>
+where
+    I: Iterator<Item = TokenSpan<'input>>,
+    V: VersionBuilder<'input>,
+{
+    if let Some(token) = tokens.next() {
+        let num = parse_number(token, !leading_v, Part::Major, tokens.span)?;
+        version.set_major(num);
+        match tokens.next() {
+            None => finish(version),
+            Some(Token::Dot) => parse_minor(tokens, version),
+            Some(Token::Hyphen) => parse_pre_release_meta(tokens, version),
+            Some(Token::Plus) => parse_build_meta(tokens, version),
+            Some(token) => finish_tokens(tokens.stash(token), version),
+        }
+    } else {
+        // unexpected end
+        Err(ErrorSpan::missing_part(Part::Major, tokens.span))
+    }
+}
+
+fn parse_minor<'input, I, V>(
+    mut tokens: Tokens<'input, I>,
+    mut version: V,
+) -> Result<V::Out, ErrorSpan>
+where
+    I: Iterator<Item = TokenSpan<'input>>,
+    V: VersionBuilder<'input>,
+{
+    match tokens.next() {
+        // things like 1.Final, early stop with a single build identifier
+        Some(Token::Alpha(v)) if is_release_identifier(v) => {
+            version.add_build_str(v);
+            finish_tokens(tokens, version)
+        }
+        // any alpha token skips right into pre-release parsing
+        Some(Token::Alpha(v)) => parse_pre_release_meta(tokens.stash(Token::Alpha(v)), version),
+        // unexpected end
+        Some(Token::Whitespace) | None => Err(ErrorSpan::missing_part(Part::Minor, tokens.span)),
+        // any other token is tried as a number
+        Some(token) => {
+            let num = parse_number(token, false, Part::Minor, tokens.span)?;
+            version.set_minor(num);
+            match tokens.next() {
+                None => finish(version),
+                Some(Token::Dot) => parse_patch(tokens, version),
+                Some(Token::Hyphen) => parse_pre_release_meta(tokens, version),
+                Some(Token::Plus) => parse_build_meta(tokens, version),
+                Some(token) => finish_tokens(tokens.stash(token), version),
+            }
+        }
+    }
+}
+
+fn parse_patch<'input, I, V>(
+    mut tokens: Tokens<'input, I>,
+    mut version: V,
+) -> Result<V::Out, ErrorSpan>
+where
+    I: Iterator<Item = TokenSpan<'input>>,
+    V: VersionBuilder<'input>,
+{
+    match tokens.next() {
+        // things like 1.Final, early stop with a single build identifier
+        Some(Token::Alpha(v)) if is_release_identifier(v) => {
+            version.add_build_str(v);
+            finish_tokens(tokens, version)
+        }
+        // any alpha token skips right into pre-release parsing
+        Some(Token::Alpha(v)) => parse_pre_release_meta(tokens.stash(Token::Alpha(v)), version),
+        // unexpected end
+        Some(Token::Whitespace) | None => Err(ErrorSpan::missing_part(Part::Patch, tokens.span)),
+        // any other token is tried as a number
+        Some(token) => {
+            let num = parse_number(token, false, Part::Patch, tokens.span)?;
+            version.set_patch(num);
+            match tokens.next() {
+                None => finish(version),
+                Some(Token::Dot) => parse_dot4_or_pre_release_meta(tokens, version),
+                Some(Token::Hyphen) => parse_pre_release_meta(tokens, version),
+                Some(Token::Plus) => parse_build_meta(tokens, version),
+                Some(token) => finish_tokens(tokens.stash(token), version),
+            }
+        }
+    }
+}
+
+fn parse_dot4_or_pre_release_meta<'input, I, V>(
+    mut tokens: Tokens<'input, I>,
+    mut version: V,
+) -> Result<V::Out, ErrorSpan>
+where
+    I: Iterator<Item = TokenSpan<'input>>,
+    V: VersionBuilder<'input>,
+{
+    match tokens.next() {
+        // things like 1.2.3.Final, need to interpret this as a build identifier
+        Some(Token::Alpha(v)) if is_release_identifier(v) => {
+            version.add_build_str(v);
+            return finish_tokens(tokens, version);
+        }
+        // regular pre-release part
+        Some(Token::Alpha(v)) => {
+            version.add_pre_release_str(v);
+        }
+        // leading zero numbers in pre-release are alphanum
+        Some(Token::ZeroNum(v, _)) => {
+            version.add_pre_release_str(v);
+        }
+        // regular pre-release part
+        Some(Token::Number(v)) => {
+            return parse_build_meta(tokens.stash(Token::Number(v)), version);
+        }
+        // unexpected end
+        Some(Token::Whitespace) | None => return Err(ErrorSpan::missing_pre(tokens.span)),
+        // any other token is invalid
+        Some(_) => return Err(ErrorSpan::unexpected(tokens.span)),
+    }
+    match tokens.next() {
+        None => finish(version),
+        Some(Token::Dot) | Some(Token::Hyphen) => parse_pre_release_meta(tokens, version),
+        Some(Token::Plus) => parse_build_meta(tokens, version),
+        Some(token) => finish_tokens(tokens.stash(token), version),
+    }
+}
+
+fn parse_pre_release_meta<'input, I, V>(
+    mut tokens: Tokens<'input, I>,
+    mut version: V,
+) -> Result<V::Out, ErrorSpan>
+where
+    I: Iterator<Item = TokenSpan<'input>>,
+    V: VersionBuilder<'input>,
+{
+    while let Some(token) = tokens.next() {
+        match token {
+            // things like 1.2.3.Final, need to interpret this as a build identifier
+            Token::Alpha(v) if is_release_identifier(v) => {
+                version.add_build_str(v);
+                return finish_tokens(tokens, version);
+            }
+            // regular pre-release part
+            Token::Alpha(v) => {
+                version.add_pre_release_str(v);
+            }
+            // leading zero numbers in pre-release are alphanum
+            Token::ZeroNum(v, _) => {
+                version.add_pre_release_str(v);
+            }
+            // regular pre-release part
+            Token::Number(v) => {
+                version.add_pre_release_num(v);
+            }
+            // unexpected end
+            Token::Whitespace => return Err(ErrorSpan::missing_pre(tokens.span)),
+            // any other token is invalid
+            _ => return Err(ErrorSpan::unexpected(tokens.span)),
+        }
+        match tokens.next() {
+            None => return finish(version),
+            Some(Token::Dot) | Some(Token::Hyphen) => {
+                // try next pre-release token
+            }
+            Some(Token::Plus) => return parse_build_meta(tokens, version),
+            Some(token) => return finish_tokens(tokens.stash(token), version),
+        };
+    }
+    Err(ErrorSpan::missing_pre(tokens.span))
+}
+
+fn parse_build_meta<'input, I, V>(
+    mut tokens: Tokens<'input, I>,
+    mut version: V,
+) -> Result<V::Out, ErrorSpan>
+where
+    I: Iterator<Item = TokenSpan<'input>>,
+    V: VersionBuilder<'input>,
+{
+    while let Some(token) = tokens.next() {
+        match token {
+            // regular build part
+            Token::Alpha(v) => {
+                version.add_build_str(v);
+            }
+            // leading zero numbers in build are alphanum
+            Token::ZeroNum(v, _) => {
+                version.add_build_str(v);
+            }
+            // regular build part
+            Token::Number(v) => {
+                version.add_build_num(v);
+            }
+            // unexpected end
+            Token::Whitespace => {
+                return Err(ErrorSpan::missing_build(tokens.span));
+            }
+            // any other token is invalid
+            _ => {
+                return Err(ErrorSpan::unexpected(tokens.span));
+            }
+        }
+        match tokens.next() {
+            None => return finish(version),
+            Some(Token::Dot) | Some(Token::Hyphen) => {
+                // try next build token
+            }
+            Some(token) => return finish_tokens(tokens.stash(token), version),
+        };
+    }
+    Err(ErrorSpan::missing_build(tokens.span))
 }
 
 fn parse_number(
@@ -963,10 +1228,9 @@ where
     I: Iterator<Item = TokenSpan<'input>>,
     V: VersionBuilder<'input>,
 {
-    while let Some(token) = tokens.next() {
-        match token {
-            Token::Whitespace => {}
-            _ => return Err(ErrorSpan::unexpected(tokens.span)),
+    for token in &mut tokens {
+        if token != Token::Whitespace {
+            return Err(ErrorSpan::unexpected(tokens.span));
         }
     }
     finish(value)
@@ -992,44 +1256,6 @@ fn eq_bytes_ignore_case(left: &str, right: &str) -> bool {
         .map(|c| c.to_ascii_lowercase())
         .zip(right.bytes())
         .all(|(c1, c2)| c1 == c2)
-}
-
-fn lex(input: &str) -> Lexer<'_> {
-    Lexer::new(input)
-}
-
-#[derive(Debug)]
-struct Lexer<'input> {
-    input: &'input str,
-    chars: std::str::CharIndices<'input>,
-    peeked: Option<(usize, char)>,
-}
-
-impl<'input> Lexer<'input> {
-    fn new(input: &'input str) -> Lexer<'input> {
-        let mut chars = input.char_indices();
-        let peeked = chars.next();
-        Lexer {
-            input,
-            chars,
-            peeked,
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-struct TokenSpan<'input> {
-    token: Token<'input>,
-    span: Span,
-}
-
-impl<'input> TokenSpan<'input> {
-    fn new(start: usize, end: usize, token: Token<'input>) -> Self {
-        Self {
-            token,
-            span: Span::new(start, end),
-        }
-    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -1072,6 +1298,45 @@ enum Token<'input> {
     UnexpectedChar(char, usize),
 }
 
+#[derive(Debug, PartialEq, Eq)]
+struct TokenSpan<'input> {
+    token: Token<'input>,
+    span: Span,
+}
+
+impl<'input> TokenSpan<'input> {
+    fn new(start: usize, end: usize, token: Token<'input>) -> Self {
+        Self {
+            token,
+            span: Span::new(start, end),
+        }
+    }
+}
+
+fn lex(input: &str) -> Lexer<'_> {
+    Lexer::new(input)
+}
+
+#[derive(Debug)]
+struct Lexer<'input> {
+    input: &'input str,
+    chars: std::str::CharIndices<'input>,
+    peeked: Option<(usize, char)>,
+}
+
+impl<'input> Lexer<'input> {
+    fn new(input: &'input str) -> Lexer<'input> {
+        let mut chars = input.char_indices();
+        let peeked = chars.next();
+        Lexer {
+            input,
+            chars,
+            peeked,
+        }
+    }
+}
+
+// TODO: peekable lexer, look at custom lexer docs from https://github.com/lalrpop/lalrpop or something
 impl<'input> Iterator for Lexer<'input> {
     type Item = TokenSpan<'input>;
 
