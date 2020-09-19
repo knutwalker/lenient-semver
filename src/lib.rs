@@ -813,7 +813,10 @@ where
 
 #[derive(Debug, Copy, Clone)]
 enum State2 {
-    Major,
+    InitOrV,
+    InitWithV,
+    MajorOrV,
+    MajorWithV,
     AfterMajor,
     Minor,
     AfterMinor,
@@ -832,19 +835,13 @@ enum State2 {
 struct Parser<'input, I> {
     tokens: Tokens<'input, I>,
     state: State2,
-    leading_v: bool,
-    potential_dot4: bool,
-    done: bool,
 }
 
 impl<'input, I> Parser<'input, I> {
     fn new(tokens: Tokens<'input, I>) -> Self {
         Self {
             tokens,
-            state: State2::Major,
-            leading_v: false,
-            potential_dot4: false,
-            done: false,
+            state: State2::InitOrV,
         }
     }
 }
@@ -854,244 +851,274 @@ where
     I: Iterator<Item = TokenSpan<'input>>,
 {
     fn try_next(&mut self) -> Result<Option<Op<'input>>, ErrorSpan> {
-        loop {
-            match self.state {
-                State2::Major => match self.tokens.next() {
-                    // unexpected end
-                    None => {
-                        return Err(ErrorSpan::missing_part(Part::Major, self.tokens.span));
-                    }
-                    // skip initial whitespace
-                    Some(Token::Whitespace) => {}
-                    // Skip leading v that is a separate token
-                    Some(Token::Alpha(v)) if !self.leading_v && (v == "v" || v == "V") => {
-                        self.leading_v = true;
-                    }
-                    Some(token) => {
-                        let num =
-                            parse_number(token, !self.leading_v, Part::Major, self.tokens.span)?;
-                        self.state = State2::AfterMajor;
-                        return Ok(Some(Op::Major(num)));
-                    }
-                },
-                State2::AfterMajor => {
-                    self.state = match self.tokens.next() {
-                        None => return Ok(None),
-                        Some(Token::Dot) => State2::Minor,
-                        Some(Token::Hyphen) => State2::PreRelease,
-                        Some(Token::Plus) => State2::Build,
-                        Some(token) => return finish_tokens2(self.tokens.stashed(token)),
+        match self.state {
+            State2::InitOrV => {
+                while let Some(token) = self.tokens.next() {
+                    match token {
+                        // skip initial whitespace
+                        Token::Whitespace => {}
+                        // Skip leading v that is a separate token
+                        Token::Alpha("v") | Token::Alpha("V") => {
+                            self.state = State2::InitWithV;
+                            return self.try_next();
+                        }
+                        token => {
+                            self.tokens.stashing(token);
+                            self.state = State2::MajorOrV;
+                            return self.try_next();
+                        }
                     }
                 }
-                State2::Minor => match self.tokens.next() {
+                // unexpected end
+                Err(ErrorSpan::missing_part(Part::Major, self.tokens.span))
+            }
+            State2::InitWithV => {
+                while let Some(token) = self.tokens.next() {
+                    match token {
+                        // skip initial whitespace
+                        Token::Whitespace => {}
+                        token => {
+                            self.tokens.stashing(token);
+                            self.state = State2::MajorWithV;
+                            return self.try_next();
+                        }
+                    }
+                }
+                // unexpected end
+                Err(ErrorSpan::missing_part(Part::Major, self.tokens.span))
+            }
+            State2::MajorOrV => {
+                return match self.tokens.next() {
+                    Some(token) => {
+                        let num = parse_number(token, true, Part::Major, self.tokens.span)?;
+                        self.state = State2::AfterMajor;
+                        Ok(Some(Op::Major(num)))
+                    }
+                    None => Err(ErrorSpan::missing_part(Part::Major, self.tokens.span)),
+                }
+            }
+            State2::MajorWithV => {
+                return match self.tokens.next() {
+                    Some(token) => {
+                        let num = parse_number(token, false, Part::Major, self.tokens.span)?;
+                        self.state = State2::AfterMajor;
+                        Ok(Some(Op::Major(num)))
+                    }
+                    None => Err(ErrorSpan::missing_part(Part::Major, self.tokens.span)),
+                }
+            }
+            State2::AfterMajor => {
+                self.state = match self.tokens.next() {
+                    None => return Ok(None),
+                    Some(Token::Dot) => State2::Minor,
+                    Some(Token::Hyphen) => State2::PreRelease,
+                    Some(Token::Plus) => State2::Build,
+                    Some(token) => return finish_tokens2(self.tokens.stashed(token)),
+                };
+                return self.try_next();
+            }
+            State2::Minor => {
+                return match self.tokens.next() {
                     // things like 1.Final, early stop with a single build identifier
                     Some(Token::Alpha(v)) if is_release_identifier(v) => {
                         self.state = State2::Finish;
-                        return Ok(Some(Op::Build(v)));
+                        Ok(Some(Op::Build(v)))
                     }
                     // any alpha token skips right into pre-release parsing
                     Some(Token::Alpha(v)) => {
                         self.state = State2::AfterPreRelease;
-                        return Ok(Some(Op::PreRelease(v)));
+                        Ok(Some(Op::PreRelease(v)))
                     }
                     // unexpected end
                     Some(Token::Whitespace) | None => {
-                        return Err(ErrorSpan::missing_part(Part::Minor, self.tokens.span));
+                        Err(ErrorSpan::missing_part(Part::Minor, self.tokens.span))
                     }
                     // any other token is tried as a number
                     Some(token) => {
                         let num = parse_number(token, false, Part::Minor, self.tokens.span)?;
                         self.state = State2::AfterMinor;
-                        return Ok(Some(Op::Minor(num)));
+                        Ok(Some(Op::Minor(num)))
                     }
-                },
-                State2::AfterMinor => {
-                    self.state = match self.tokens.next() {
-                        None => return Ok(None),
-                        Some(Token::Dot) => State2::Patch,
-                        Some(Token::Hyphen) => State2::PreRelease,
-                        Some(Token::Plus) => State2::Build,
-                        Some(token) => return finish_tokens2(self.tokens.stashed(token)),
-                    }
-                }
-                State2::Patch => match self.tokens.next() {
+                };
+            }
+            State2::AfterMinor => {
+                self.state = match self.tokens.next() {
+                    None => return Ok(None),
+                    Some(Token::Dot) => State2::Patch,
+                    Some(Token::Hyphen) => State2::PreRelease,
+                    Some(Token::Plus) => State2::Build,
+                    Some(token) => return finish_tokens2(self.tokens.stashed(token)),
+                };
+                return self.try_next();
+            }
+            State2::Patch => {
+                return match self.tokens.next() {
                     // things like 1.Final, early stop with a single build identifier
                     Some(Token::Alpha(v)) if is_release_identifier(v) => {
                         self.state = State2::Finish;
-                        return Ok(Some(Op::Build(v)));
+                        Ok(Some(Op::Build(v)))
                     }
                     // any alpha token skips right into pre-release parsing
                     Some(Token::Alpha(v)) => {
                         self.state = State2::AfterPreRelease;
-                        return Ok(Some(Op::PreRelease(v)));
+                        Ok(Some(Op::PreRelease(v)))
                     }
                     // unexpected end
                     Some(Token::Whitespace) | None => {
-                        return Err(ErrorSpan::missing_part(Part::Patch, self.tokens.span));
+                        Err(ErrorSpan::missing_part(Part::Patch, self.tokens.span))
                     }
                     // any other token is tried as a number
                     Some(token) => {
                         let num = parse_number(token, false, Part::Patch, self.tokens.span)?;
                         self.state = State2::AfterPatch;
-                        return Ok(Some(Op::Patch(num)));
+                        Ok(Some(Op::Patch(num)))
                     }
-                },
-                State2::AfterPatch => {
-                    self.state = match self.tokens.next() {
-                        None => return Ok(None),
-                        Some(Token::Dot) => State2::PossibleDot4,
-                        Some(Token::Hyphen) => State2::PreRelease,
-                        Some(Token::Plus) => State2::Build,
-                        Some(token) => {
-                            self.tokens.stashing(token);
-                            State2::Finish
-                        }
+                };
+            }
+            State2::AfterPatch => {
+                self.state = match self.tokens.next() {
+                    None => return Ok(None),
+                    Some(Token::Dot) => State2::PossibleDot4,
+                    Some(Token::Hyphen) => State2::PreRelease,
+                    Some(Token::Plus) => State2::Build,
+                    Some(token) => return finish_tokens2(self.tokens.stashed(token)),
+                };
+                return self.try_next();
+            }
+            State2::PossibleDot4 => {
+                return match self.tokens.next() {
+                    // things like 1.2.3.Final, need to interpret this as a build identifier
+                    Some(Token::Alpha(v)) if is_release_identifier(v) => {
+                        self.state = State2::Finish;
+                        Ok(Some(Op::Build(v)))
                     }
-                }
-                State2::PossibleDot4 => {
-                    match self.tokens.next() {
-                        // things like 1.2.3.Final, need to interpret this as a build identifier
-                        Some(Token::Alpha(v)) if is_release_identifier(v) => {
-                            self.state = State2::Finish;
-                            return Ok(Some(Op::Build(v)));
-                        }
-                        // regular pre-release part
-                        Some(Token::Alpha(v)) => {
-                            self.state = State2::AfterPreRelease;
-                            return Ok(Some(Op::PreRelease(v)));
-                        }
-                        // leading zero numbers in pre-release are alphanum
-                        Some(Token::ZeroNum(v, _)) => {
-                            self.state = State2::AfterPreRelease;
-                            return Ok(Some(Op::PreRelease(v)));
-                        }
-                        // continued version numbers
-                        Some(Token::Number(v)) => {
-                            self.state = State2::AfterDot4;
-                            return Ok(Some(Op::Dot4(v)));
-                        }
-                        // unexpected end
-                        Some(Token::Whitespace) | None => {
-                            return Err(ErrorSpan::missing_pre(self.tokens.span))
-                        }
-                        // any other token is invalid
-                        Some(_) => {
-                            return Err(ErrorSpan::unexpected(self.tokens.span));
-                        }
+                    // regular pre-release part
+                    Some(Token::Alpha(v)) => {
+                        self.state = State2::AfterPreRelease;
+                        Ok(Some(Op::PreRelease(v)))
                     }
-                }
-                State2::Dot4 => {
-                    match self.tokens.next() {
-                        // regular build part
-                        Some(Token::Alpha(v)) => {
-                            self.state = State2::AfterBuild;
-                            return Ok(Some(Op::Build(v)));
-                        }
-                        // leading zero numbers in build are alphanum
-                        Some(Token::ZeroNum(v, _)) => {
-                            self.state = State2::AfterBuild;
-                            return Ok(Some(Op::Build(v)));
-                        }
-                        // continued version numbers
-                        Some(Token::Number(v)) => {
-                            self.state = State2::AfterDot4;
-                            return Ok(Some(Op::Dot4(v)));
-                        }
-                        // unexpected end
-                        Some(Token::Whitespace) | None => {
-                            return Err(ErrorSpan::missing_build(self.tokens.span))
-                        }
-                        // any other token is invalid
-                        Some(_) => {
-                            return Err(ErrorSpan::unexpected(self.tokens.span));
-                        }
+                    // leading zero numbers in pre-release are alphanum
+                    Some(Token::ZeroNum(v, _)) => {
+                        self.state = State2::AfterPreRelease;
+                        Ok(Some(Op::PreRelease(v)))
                     }
-                }
-                State2::AfterDot4 => {
-                    self.state = match self.tokens.next() {
-                        None => return Ok(None),
-                        Some(Token::Dot) | Some(Token::Hyphen) => State2::Dot4,
-                        Some(Token::Plus) => State2::Build,
-                        Some(token) => return finish_tokens2(self.tokens.stashed(token)),
-                    };
-                }
-                State2::PreRelease => {
-                    match self.tokens.next() {
-                        // things like 1.2.3.Final, need to interpret this as a build identifier
-                        Some(Token::Alpha(v)) if is_release_identifier(v) => {
-                            self.state = State2::Finish;
-                            return Ok(Some(Op::Build(v)));
-                        }
-                        // regular pre-release part
-                        Some(Token::Alpha(v)) => {
-                            self.state = State2::AfterPreRelease;
-                            return Ok(Some(Op::PreRelease(v)));
-                        }
-                        // leading zero numbers in pre-release are alphanum
-                        Some(Token::ZeroNum(v, _)) => {
-                            self.state = State2::AfterPreRelease;
-                            return Ok(Some(Op::PreRelease(v)));
-                        }
-                        // regular pre-release part
-                        Some(Token::Number(v)) => {
-                            self.state = State2::AfterPreRelease;
-                            return Ok(Some(Op::PreReleaseNum(v)));
-                        }
-                        // unexpected end
-                        Some(Token::Whitespace) | None => {
-                            return Err(ErrorSpan::missing_pre(self.tokens.span))
-                        }
-                        // any other token is invalid
-                        Some(_) => {
-                            return Err(ErrorSpan::unexpected(self.tokens.span));
-                        }
+                    // continued version numbers
+                    Some(Token::Number(v)) => {
+                        self.state = State2::AfterDot4;
+                        Ok(Some(Op::Dot4(v)))
                     }
-                }
-                State2::AfterPreRelease => {
-                    self.state = match self.tokens.next() {
-                        None => return Ok(None),
-                        Some(Token::Dot) | Some(Token::Hyphen) => State2::PreRelease,
-                        Some(Token::Plus) => State2::Build,
-                        Some(token) => return finish_tokens2(self.tokens.stashed(token)),
-                    };
-                }
-                State2::Build => {
-                    match self.tokens.next() {
-                        // regular build part
-                        Some(Token::Alpha(v)) => {
-                            self.state = State2::AfterBuild;
-                            return Ok(Some(Op::Build(v)));
-                        }
-                        // leading zero numbers in build are alphanum
-                        Some(Token::ZeroNum(v, _)) => {
-                            self.state = State2::AfterBuild;
-                            return Ok(Some(Op::Build(v)));
-                        }
-                        // regular build part
-                        Some(Token::Number(v)) => {
-                            self.state = State2::AfterBuild;
-                            return Ok(Some(Op::BuildNum(v)));
-                        }
-                        // unexpected end
-                        Some(Token::Whitespace) | None => {
-                            return Err(ErrorSpan::missing_build(self.tokens.span));
-                        }
-                        // any other token is invalid
-                        Some(_) => {
-                            return Err(ErrorSpan::unexpected(self.tokens.span));
-                        }
+                    // unexpected end
+                    Some(Token::Whitespace) | None => Err(ErrorSpan::missing_pre(self.tokens.span)),
+                    // any other token is invalid
+                    Some(_) => Err(ErrorSpan::unexpected(self.tokens.span)),
+                };
+            }
+            State2::Dot4 => {
+                return match self.tokens.next() {
+                    // regular build part
+                    Some(Token::Alpha(v)) => {
+                        self.state = State2::AfterBuild;
+                        Ok(Some(Op::Build(v)))
                     }
-                }
-                State2::AfterBuild => {
-                    self.state = match self.tokens.next() {
-                        None => return Ok(None),
-                        Some(Token::Dot) | Some(Token::Hyphen) => State2::Build,
-                        Some(token) => return finish_tokens2(self.tokens.stashed(token)),
-                    };
-                }
-                State2::Finish => {
-                    return finish_tokens2(&mut self.tokens);
-                }
+                    // leading zero numbers in build are alphanum
+                    Some(Token::ZeroNum(v, _)) => {
+                        self.state = State2::AfterBuild;
+                        Ok(Some(Op::Build(v)))
+                    }
+                    // continued version numbers
+                    Some(Token::Number(v)) => {
+                        self.state = State2::AfterDot4;
+                        Ok(Some(Op::Dot4(v)))
+                    }
+                    // unexpected end
+                    Some(Token::Whitespace) | None => {
+                        Err(ErrorSpan::missing_build(self.tokens.span))
+                    }
+                    // any other token is invalid
+                    Some(_) => Err(ErrorSpan::unexpected(self.tokens.span)),
+                };
+            }
+            State2::AfterDot4 => {
+                self.state = match self.tokens.next() {
+                    None => return Ok(None),
+                    Some(Token::Dot) | Some(Token::Hyphen) => State2::Dot4,
+                    Some(Token::Plus) => State2::Build,
+                    Some(token) => return finish_tokens2(self.tokens.stashed(token)),
+                };
+                return self.try_next();
+            }
+            State2::PreRelease => {
+                return match self.tokens.next() {
+                    // things like 1.2.3.Final, need to interpret this as a build identifier
+                    Some(Token::Alpha(v)) if is_release_identifier(v) => {
+                        self.state = State2::Finish;
+                        Ok(Some(Op::Build(v)))
+                    }
+                    // regular pre-release part
+                    Some(Token::Alpha(v)) => {
+                        self.state = State2::AfterPreRelease;
+                        Ok(Some(Op::PreRelease(v)))
+                    }
+                    // leading zero numbers in pre-release are alphanum
+                    Some(Token::ZeroNum(v, _)) => {
+                        self.state = State2::AfterPreRelease;
+                        Ok(Some(Op::PreRelease(v)))
+                    }
+                    // regular pre-release part
+                    Some(Token::Number(v)) => {
+                        self.state = State2::AfterPreRelease;
+                        Ok(Some(Op::PreReleaseNum(v)))
+                    }
+                    // unexpected end
+                    Some(Token::Whitespace) | None => Err(ErrorSpan::missing_pre(self.tokens.span)),
+                    // any other token is invalid
+                    Some(_) => Err(ErrorSpan::unexpected(self.tokens.span)),
+                };
+            }
+            State2::AfterPreRelease => {
+                self.state = match self.tokens.next() {
+                    None => return Ok(None),
+                    Some(Token::Dot) | Some(Token::Hyphen) => State2::PreRelease,
+                    Some(Token::Plus) => State2::Build,
+                    Some(token) => return finish_tokens2(self.tokens.stashed(token)),
+                };
+                return self.try_next();
+            }
+            State2::Build => {
+                return match self.tokens.next() {
+                    // regular build part
+                    Some(Token::Alpha(v)) => {
+                        self.state = State2::AfterBuild;
+                        Ok(Some(Op::Build(v)))
+                    }
+                    // leading zero numbers in build are alphanum
+                    Some(Token::ZeroNum(v, _)) => {
+                        self.state = State2::AfterBuild;
+                        Ok(Some(Op::Build(v)))
+                    }
+                    // regular build part
+                    Some(Token::Number(v)) => {
+                        self.state = State2::AfterBuild;
+                        Ok(Some(Op::BuildNum(v)))
+                    }
+                    // unexpected end
+                    Some(Token::Whitespace) | None => {
+                        Err(ErrorSpan::missing_build(self.tokens.span))
+                    }
+                    // any other token is invalid
+                    Some(_) => Err(ErrorSpan::unexpected(self.tokens.span)),
+                };
+            }
+            State2::AfterBuild => {
+                self.state = match self.tokens.next() {
+                    None => return Ok(None),
+                    Some(Token::Dot) | Some(Token::Hyphen) => State2::Build,
+                    Some(token) => return finish_tokens2(self.tokens.stashed(token)),
+                };
+                return self.try_next();
+            }
+            State2::Finish => {
+                return finish_tokens2(&mut self.tokens);
             }
         }
     }
