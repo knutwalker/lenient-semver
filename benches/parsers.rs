@@ -45,7 +45,7 @@ fn regex_parser(re: &Regex, input: &str) -> Option<Version> {
 fn bench_parsers(c: &mut Criterion) {
     let mut group = c.benchmark_group("Parser");
 
-    for &input in [INPUT_S, INPUT_XL].iter() {
+    for &input in [/*INPUT_S, */ INPUT_XL].iter() {
         let lenient_semver = BenchmarkId::new("lenient_parser_semver", input);
         group.bench_with_input(lenient_semver, input, |b, input| {
             b.iter(|| parse::<Version>(black_box(input)).unwrap())
