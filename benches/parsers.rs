@@ -47,28 +47,28 @@ fn bench_parsers(c: &mut Criterion) {
     let mut group = c.benchmark_group("Parser");
 
     for &input in [INPUT_S, INPUT_XL].iter() {
-        let lenient_semver = BenchmarkId::new("lenient_parser_semver", input);
+        let lenient_semver = BenchmarkId::new("lenient_semver", input);
         group.bench_with_input(lenient_semver, input, |b, input| {
             b.iter(|| parse::<Version>(black_box(input)).unwrap())
         });
-        let lenient_lite = BenchmarkId::new("lenient_parser_lite", input);
+        let lenient_lite = BenchmarkId::new("lenient_lite", input);
         group.bench_with_input(lenient_lite, input, |b, input| {
             b.iter(|| parse::<VersionLite<'_>>(black_box(input)).unwrap())
         });
-        let semver = BenchmarkId::new("semver_parser", input);
+        let semver = BenchmarkId::new("semver_11", input);
         group.bench_with_input(semver, input, |b, input| {
             b.iter(|| Version::parse(black_box(input)).unwrap())
         });
-        let semver10 = BenchmarkId::new("semver_10_parser", input);
+        let semver10 = BenchmarkId::new("semver_10", input);
         group.bench_with_input(semver10, input, |b, input| {
             b.iter(|| Version10::parse(black_box(input)).unwrap())
         });
-        let semver_rs = BenchmarkId::new("semver_rs_parser", input);
+        let semver_rs = BenchmarkId::new("semver_rs", input);
         group.bench_with_input(semver_rs, input, |b, input| {
             b.iter(|| VersionRs::new(black_box(input)).parse().unwrap())
         });
 
-        let regex = BenchmarkId::new("regex_parser", input);
+        let regex = BenchmarkId::new("regex", input);
         let re = Regex::new(r"^\s*(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+(?P<buildmetadata>[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?\s*$").unwrap();
         group.bench_with_input(regex, &(input, re), |b, (input, re)| {
             b.iter(|| regex_parser(re, black_box(input)).unwrap())
