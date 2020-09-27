@@ -54,17 +54,20 @@ fn bench_parsers(c: &mut Criterion) {
         group.bench_with_input(lenient_lite, input, |b, input| {
             b.iter(|| parse::<VersionLite<'_>>(black_box(input)).unwrap())
         });
-        // group.bench_function("semver_parser", |b| {
-        //     b.iter(|| Version::parse(black_box(input)).unwrap())
-        // });
-        // group.bench_function("semver_rs_parser", |b| {
-        //     b.iter(|| VersionRs::new(black_box(input)).parse().unwrap())
-        // });
+        let semver = BenchmarkId::new("semver_parser", input);
+        group.bench_with_input(semver, input, |b, input| {
+            b.iter(|| Version::parse(black_box(input)).unwrap())
+        });
+        let semver_rs = BenchmarkId::new("semver_rs_parser", input);
+        group.bench_with_input(semver_rs, input, |b, input| {
+            b.iter(|| Version::parse(black_box(input)).unwrap())
+        });
 
-        // let re = Regex::new(r"^\s*(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+(?P<buildmetadata>[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?\s*$").unwrap();
-        // group.bench_with_input("regex_parser", &re, |b, re| {
-        //     b.iter(|| regex_parser(re, black_box(input)).unwrap());
-        // });
+        let regex = BenchmarkId::new("regex_parser", input);
+        let re = Regex::new(r"^\s*(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+(?P<buildmetadata>[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?\s*$").unwrap();
+        group.bench_with_input(regex, &(input, re), |b, (input, re)| {
+            b.iter(|| regex_parser(re, black_box(input)).unwrap())
+        });
     }
 
     group.finish();
