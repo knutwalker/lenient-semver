@@ -3,6 +3,7 @@ use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criteri
 use lenient_semver::{parse, VersionLite};
 use regex::Regex;
 use semver::{Identifier, Version};
+use semver10::Version as Version10;
 use semver_rs::Version as VersionRs;
 
 const INPUT_S: &str = "1.0.0";
@@ -57,6 +58,10 @@ fn bench_parsers(c: &mut Criterion) {
         let semver = BenchmarkId::new("semver_parser", input);
         group.bench_with_input(semver, input, |b, input| {
             b.iter(|| Version::parse(black_box(input)).unwrap())
+        });
+        let semver10 = BenchmarkId::new("semver_10_parser", input);
+        group.bench_with_input(semver10, input, |b, input| {
+            b.iter(|| Version10::parse(black_box(input)).unwrap())
         });
         let semver_rs = BenchmarkId::new("semver_rs_parser", input);
         group.bench_with_input(semver_rs, input, |b, input| {
