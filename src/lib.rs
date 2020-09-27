@@ -426,6 +426,29 @@ impl From<IdentifierLite<'_>> for semver::Identifier {
     }
 }
 
+#[cfg(all(feature = "semver11", feature = "version_lite"))]
+impl From<VersionLite<'_>> for semver11::Version {
+    fn from(v: VersionLite<'_>) -> Self {
+        semver11::Version {
+            major: v.major,
+            minor: v.minor,
+            patch: v.patch,
+            pre: v.pre.into_iter().map(From::from).collect(),
+            build: v.build.into_iter().map(From::from).collect(),
+        }
+    }
+}
+
+#[cfg(all(feature = "semver11", feature = "version_lite"))]
+impl From<IdentifierLite<'_>> for semver11::Identifier {
+    fn from(id: IdentifierLite<'_>) -> Self {
+        match id {
+            IdentifierLite::Numeric(v) => semver11::Identifier::Numeric(v),
+            IdentifierLite::AlphaNumeric(v) => semver11::Identifier::AlphaNumeric(v.into()),
+        }
+    }
+}
+
 /// Possible errors that happen during parsing
 /// and the location of the token where the error occurred.
 ///
@@ -1192,11 +1215,7 @@ mod tests {
     use super::*;
     use test_case::test_case;
 
-    #[cfg(all(
-        feature = "semver",
-        not(feature = "semver11"),
-        not(feature = "version_lite")
-    ))]
+    #[cfg(all(feature = "semver", not(feature = "semver11")))]
     mod semver_helpers {
         pub(super) use semver::{Identifier, Version as SemVer};
         pub(super) type Version<'input> = SemVer;
@@ -1218,11 +1237,7 @@ mod tests {
         }
     }
 
-    #[cfg(all(
-        not(feature = "semver"),
-        feature = "semver11",
-        not(feature = "version_lite")
-    ))]
+    #[cfg(all(not(feature = "semver"), feature = "semver11"))]
     mod semver_helpers {
         pub(super) use semver11::{Identifier, Version as SemVer};
         pub(super) type Version<'input> = SemVer;
@@ -1244,11 +1259,7 @@ mod tests {
         }
     }
 
-    #[cfg(all(
-        not(feature = "semver"),
-        not(feature = "semver11"),
-        feature = "version_lite"
-    ))]
+    #[cfg(all(not(feature = "semver"), not(feature = "semver11")))]
     mod semver_helpers {
         pub(super) use super::{IdentifierLite as Identifier, VersionLite};
         pub(super) type Version<'input> = VersionLite<'input>;
@@ -1667,20 +1678,53 @@ mod tests {
         parse::<Version<'_>>(v)
     }
 
-    #[cfg_attr(all(feature = "semver", feature = "version_lite"), test_case("1.2.3"))]
     #[cfg_attr(
-        all(feature = "semver", feature = "version_lite"),
+        all(
+            any(
+                all(not(feature = "semver"), feature = "semver11"),
+                all(feature = "semver", not(feature = "semver11"))
+            ),
+            feature = "version_lite"
+        ),
+        test_case("1.2.3")
+    )]
+    #[cfg_attr(
+        all(
+            any(
+                all(not(feature = "semver"), feature = "semver11"),
+                all(feature = "semver", not(feature = "semver11"))
+            ),
+            feature = "version_lite"
+        ),
         test_case("1.2.3-alpha01")
     )]
     #[cfg_attr(
-        all(feature = "semver", feature = "version_lite"),
+        all(
+            any(
+                all(not(feature = "semver"), feature = "semver11"),
+                all(feature = "semver", not(feature = "semver11"))
+            ),
+            feature = "version_lite"
+        ),
         test_case("1.2.3+build02")
     )]
     #[cfg_attr(
-        all(feature = "semver", feature = "version_lite"),
+        all(
+            any(
+                all(not(feature = "semver"), feature = "semver11"),
+                all(feature = "semver", not(feature = "semver11"))
+            ),
+            feature = "version_lite"
+        ),
         test_case("1.2.3-beta03+r4")
     )]
-    #[cfg(all(feature = "semver", feature = "version_lite"))]
+    #[cfg(all(
+        any(
+            all(not(feature = "semver"), feature = "semver11"),
+            all(feature = "semver", not(feature = "semver11"))
+        ),
+        feature = "version_lite"
+    ))]
     fn test_semver_and_lite(v: &str) {
         let sem = parse::<SemVer>(v).unwrap();
         let lite = parse::<VersionLite<'_>>(v).unwrap();
