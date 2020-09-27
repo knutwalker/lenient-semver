@@ -65,7 +65,7 @@ fn bench_parsers(c: &mut Criterion) {
         });
         let semver_rs = BenchmarkId::new("semver_rs_parser", input);
         group.bench_with_input(semver_rs, input, |b, input| {
-            b.iter(|| Version::parse(black_box(input)).unwrap())
+            b.iter(|| VersionRs::new(black_box(input)).parse().unwrap())
         });
 
         let regex = BenchmarkId::new("regex_parser", input);
