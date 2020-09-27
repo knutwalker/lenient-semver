@@ -267,6 +267,49 @@ impl<'input> VersionBuilder<'input> for semver::Version {
     }
 }
 
+#[cfg(feature = "semver11")]
+impl<'input> VersionBuilder<'input> for semver11::Version {
+    type Out = Self;
+
+    fn new() -> Self {
+        semver11::Version::new(0, 0, 0)
+    }
+
+    fn set_major(&mut self, major: u64) {
+        self.major = major;
+    }
+
+    fn set_minor(&mut self, minor: u64) {
+        self.minor = minor;
+    }
+
+    fn set_patch(&mut self, patch: u64) {
+        self.patch = patch;
+    }
+
+    fn add_pre_release_str(&mut self, pre_release: &'input str) {
+        self.pre
+            .push(semver11::Identifier::AlphaNumeric(pre_release.into()))
+    }
+
+    fn add_pre_release_num(&mut self, pre_release: u64) {
+        self.pre.push(semver11::Identifier::Numeric(pre_release))
+    }
+
+    fn add_build_str(&mut self, build: &'input str) {
+        self.build
+            .push(semver11::Identifier::AlphaNumeric(build.into()))
+    }
+
+    fn add_build_num(&mut self, build: u64) {
+        self.build.push(semver11::Identifier::Numeric(build))
+    }
+
+    fn build(self) -> Self::Out {
+        self
+    }
+}
+
 #[cfg(any(test, feature = "version_lite"))]
 /// Represents a version number.
 ///
@@ -1149,7 +1192,11 @@ mod tests {
     use super::*;
     use test_case::test_case;
 
-    #[cfg(feature = "semver")]
+    #[cfg(all(
+        feature = "semver",
+        not(feature = "semver11"),
+        not(feature = "version_lite")
+    ))]
     mod semver_helpers {
         pub(super) use semver::{Identifier, Version as SemVer};
         pub(super) type Version<'input> = SemVer;
@@ -1171,7 +1218,37 @@ mod tests {
         }
     }
 
-    #[cfg(not(feature = "semver"))]
+    #[cfg(all(
+        not(feature = "semver"),
+        feature = "semver11",
+        not(feature = "version_lite")
+    ))]
+    mod semver_helpers {
+        pub(super) use semver11::{Identifier, Version as SemVer};
+        pub(super) type Version<'input> = SemVer;
+
+        pub(super) trait IntoIdentifier {
+            fn into_itentifier(self) -> Identifier;
+        }
+
+        impl IntoIdentifier for &str {
+            fn into_itentifier(self) -> Identifier {
+                Identifier::AlphaNumeric(self.into())
+            }
+        }
+
+        impl IntoIdentifier for u64 {
+            fn into_itentifier(self) -> Identifier {
+                Identifier::Numeric(self)
+            }
+        }
+    }
+
+    #[cfg(all(
+        not(feature = "semver"),
+        not(feature = "semver11"),
+        feature = "version_lite"
+    ))]
     mod semver_helpers {
         pub(super) use super::{IdentifierLite as Identifier, VersionLite};
         pub(super) type Version<'input> = VersionLite<'input>;
@@ -1579,13 +1656,13 @@ mod tests {
         assert!(is_release_identifier(v));
     }
 
-    #[cfg_attr(feature = "semver", test_case("1.2.3" => parse::<Version<'_>>("1.2.3.Final"); "dot final"))]
-    #[cfg_attr(feature = "semver", test_case("1.2.3" => parse::<Version<'_>>("1.2.3.Release"); "dot release"))]
-    #[cfg_attr(feature = "semver", test_case("1.2.3" => parse::<Version<'_>>("1.2.3-Final"); "hyphen final"))]
-    #[cfg_attr(feature = "semver", test_case("1.2.3" => parse::<Version<'_>>("1.2.3-Release"); "hyphen release"))]
-    #[cfg_attr(feature = "semver", test_case("1.2.3" => parse::<Version<'_>>("1.2.3+Final"); "plus final"))]
-    #[cfg_attr(feature = "semver", test_case("1.2.3" => parse::<Version<'_>>("1.2.3+Release"); "plus release"))]
-    #[cfg(feature = "semver")]
+    #[cfg_attr(any(feature = "semver", feature = "semver11"), test_case("1.2.3" => parse::<Version<'_>>("1.2.3.Final"); "dot final"))]
+    #[cfg_attr(any(feature = "semver", feature = "semver11"), test_case("1.2.3" => parse::<Version<'_>>("1.2.3.Release"); "dot release"))]
+    #[cfg_attr(any(feature = "semver", feature = "semver11"), test_case("1.2.3" => parse::<Version<'_>>("1.2.3-Final"); "hyphen final"))]
+    #[cfg_attr(any(feature = "semver", feature = "semver11"), test_case("1.2.3" => parse::<Version<'_>>("1.2.3-Release"); "hyphen release"))]
+    #[cfg_attr(any(feature = "semver", feature = "semver11"), test_case("1.2.3" => parse::<Version<'_>>("1.2.3+Final"); "plus final"))]
+    #[cfg_attr(any(feature = "semver", feature = "semver11"), test_case("1.2.3" => parse::<Version<'_>>("1.2.3+Release"); "plus release"))]
+    #[cfg(any(feature = "semver", feature = "semver11"))]
     fn test_release_cmp(v: &str) -> Result<Version<'_>, Error<'_>> {
         parse::<Version<'_>>(v)
     }
@@ -1611,8 +1688,8 @@ mod tests {
         assert_eq!(sem, sem_from_lite);
     }
 
-    #[cfg_attr(feature = "semver", test)]
-    #[cfg(feature = "semver")]
+    #[cfg_attr(any(feature = "semver", feature = "semver11"), test)]
+    #[cfg(any(feature = "semver", feature = "semver11"))]
     fn test_regex() {
         use regex::Regex;
 
