@@ -7,54 +7,50 @@ use semver_rs::{Options, Version as VersionRs};
 
 const INPUT_S: &str = "1.0.0";
 const INPUT_XL: &str = "  1.2.3-1.alpha1.9+build5.7.3aedf.01337  ";
-const INPUTS: [&str; 2] = [INPUT_S, INPUT_XL];
-
-mod benchmarks;
-
-pub use crate::benchmarks::parser_benchmarks;
+pub const INPUTS: [&str; 2] = [INPUT_S, INPUT_XL];
 
 #[inline(always)]
-fn lenient_semver(input: &str) -> Version {
+pub fn lenient_semver(input: &str) -> Version {
     parse::<Version>(input).unwrap()
 }
 
 #[inline(always)]
-fn lenient_lite(input: &str) -> VersionLite {
+pub fn lenient_lite(input: &str) -> VersionLite {
     parse::<VersionLite>(input).unwrap()
 }
 
 #[inline(always)]
-fn lenient_semver10(input: &str) -> Version10 {
+pub fn lenient_semver10(input: &str) -> Version10 {
     parse::<Version10>(input).unwrap()
 }
 
 #[inline(always)]
-fn lenient_02_semver(input: &str) -> Version10 {
+pub fn lenient_02_semver(input: &str) -> Version10 {
     parse_02::<Version10>(input).unwrap()
 }
 
 #[inline(always)]
-fn lenient_02_lite(input: &str) -> VersionLite02 {
+pub fn lenient_02_lite(input: &str) -> VersionLite02 {
     parse_02::<VersionLite02>(input).unwrap()
 }
 
 #[inline(always)]
-fn semver(input: &str) -> Version {
+pub fn semver(input: &str) -> Version {
     Version::parse(input).unwrap()
 }
 
 #[inline(always)]
-fn semver10(input: &str) -> Version10 {
+pub fn semver10(input: &str) -> Version10 {
     Version10::parse(input).unwrap()
 }
 
 #[inline(always)]
-fn semver_rs(input: &str) -> VersionRs {
+pub fn semver_rs(input: &str) -> VersionRs {
     VersionRs::new(input).parse().unwrap()
 }
 
 #[inline(always)]
-fn semver_rs_loose(input: &str) -> VersionRs {
+pub fn semver_rs_loose(input: &str) -> VersionRs {
     VersionRs::new(input)
         .with_options(Options::builder().loose(true).build())
         .parse()
@@ -62,15 +58,15 @@ fn semver_rs_loose(input: &str) -> VersionRs {
 }
 
 #[inline(always)]
-fn regex(re: &Regex, input: &str) -> Version {
+pub fn regex(re: &Regex, input: &str) -> Version {
     regex_parser(re, input).unwrap()
 }
 
-fn parsing_regex() -> Regex {
+pub fn parsing_regex() -> Regex {
     Regex::new(r"^\s*(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+(?P<buildmetadata>[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?\s*$").unwrap()
 }
 
-fn regex_parser(re: &Regex, input: &str) -> Option<Version> {
+pub fn regex_parser(re: &Regex, input: &str) -> Option<Version> {
     let caps = re.captures(input)?;
 
     let mut version = Version::new(

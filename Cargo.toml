@@ -1,5 +1,5 @@
 [workspace]
-members = [ "benchmarks" ]
+members = [ "benchmarks", "benchmark_runner" ]
 
 [package]
 name = "lenient_semver"
