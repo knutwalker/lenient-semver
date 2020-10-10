@@ -21,54 +21,56 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v2
+        name: Checkout code
       - uses: actions-rs/toolchain@v1
+        name: Setup Rust
         with:
           profile: minimal
           toolchain: ${{ matrix.rust }}
           components: rustfmt, clippy
           override: true
       - uses: actions-rs/cargo@v1
-        name: Tests with no features
+        name: Test with no features
         with:
           command: test
           args: --no-default-features --lib --verbose
       - uses: actions-rs/cargo@v1
-        name: Tests with default features
+        name: Test with default features
         with:
           command: test
           args: --verbose
       - uses: actions-rs/cargo@v1
-        name: Tests with version_lite feature
+        name: Test with version_lite feature
         with:
           command: test
           args: --features=version_lite --lib --verbose
       - uses: actions-rs/cargo@v1
-        name: Tests with version_lite and semver10 features
+        name: Test with version_lite and semver10 features
         with:
           command: test
           args: --features=version_lite,semver10 --lib --verbose
       - uses: actions-rs/cargo@v1
-        name: Tests with all features
+        name: Test with all features
         with:
           command: test
           args: --all-features --lib --verbose
       - uses: actions-rs/cargo@v1
-        name: Tests with just version_lite feature
+        name: Test with just version_lite feature
         with:
           command: test
           args: --no-default-features --features=version_lite --lib --verbose
       - uses: actions-rs/cargo@v1
-        name: Tests with just semver10 feature
+        name: Test with just semver10 feature
         with:
           command: test
           args: --no-default-features --features=semver10 --lib --verbose
       - uses: actions-rs/cargo@v1
-        name: Tests with just version_lite and semver10 feature
+        name: Test with just version_lite and semver10 feature
         with:
           command: test
           args: --no-default-features --features=version_lite,semver10 --lib --verbose
       - uses: actions-rs/cargo@v1
-        name: Check code f
+        name: Check code formatting
         with:
           command: fmt
           args: --all -- --check
