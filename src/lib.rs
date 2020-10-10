@@ -1017,12 +1017,12 @@ fn parse_number_inner(token: TokenSpan, input: &str, part: Part) -> Result<u64, 
         .ok_or_else(|| ErrorType::NotANumber(part))
 }
 
-fn finish_tokens<'input, I, V>(mut tokens: I, value: V) -> Result<V::Out, ErrorSpan>
+fn finish_tokens<'input, I, V>(tokens: I, value: V) -> Result<V::Out, ErrorSpan>
 where
     I: Iterator<Item = TokenSpan>,
     V: VersionBuilder<'input>,
 {
-    while let Some(token) = tokens.next() {
+    for token in tokens {
         finish_token(token)?;
     }
     finish(value)

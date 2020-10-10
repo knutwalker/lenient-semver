@@ -77,4 +77,4 @@ jobs:
         name: Check clippy lints
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          args: --all --all-features --all-targets
+          args: --all-features --all-targets
