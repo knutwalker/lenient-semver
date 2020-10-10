@@ -49,10 +49,10 @@ jobs:
           command: test
           args: --features=version_lite,semver10 --lib --verbose
       - uses: actions-rs/cargo@v1
-        name: Test with all features
+        name: Test Benchmarks
         with:
           command: test
-          args: --all-features --lib --verbose
+          args: --package benchmarks --lib --verbose
       - uses: actions-rs/cargo@v1
         name: Test with just version_lite feature
         with:
