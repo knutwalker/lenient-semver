@@ -1,4 +1,4 @@
 !.github/
-/target
+target
 Cargo.lock
 *.code-workspace

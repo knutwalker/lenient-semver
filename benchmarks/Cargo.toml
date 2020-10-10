@@ -1,0 +1,22 @@
+[package]
+name = "benchmarks"
+version = "0.2.1-alpha.0"
+description = "Benchmarks for Lenient parser for Semantic Version numbers."
+authors = ["Paul Horn <developer@knutwalker.de>"]
+edition = "2018"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/knutwalker/lenient-semver/"
+repository = "https://github.com/knutwalker/lenient-semver/"
+publish = false
+workspace = ".."
+
+[dependencies]
+lenient_semver = { path = "..", features = ["semver10", "version_lite" ] }
+lenient_semver_02 = { version = "0.2.0", package = "lenient_semver", features = ["version_lite"] }
+regex = "1.3.9"
+semver = { version = "0.11.0" }
+semver10 = { version = "0.10.0", package = "semver" }
+semver_rs = "0.1.3"
+
+[dev-dependencies]
+test-case = "1.0.0"

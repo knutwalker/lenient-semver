@@ -1803,47 +1803,4 @@ mod tests {
         let sem_from_lite = SemVer::from(lite);
         assert_eq!(sem, sem_from_lite);
     }
-
-    #[cfg_attr(any(feature = "semver", feature = "semver10"), test)]
-    #[cfg(any(feature = "semver", feature = "semver10"))]
-    fn test_regex() {
-        use regex::Regex;
-
-        let semver_re = r"^\s*(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+(?P<buildmetadata>[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?\s*$";
-        let re = Regex::new(semver_re).unwrap();
-        let text = "  1.2.3-1.alpha1.9+build5.7.3aedf.01337  ";
-        let caps = re.captures(text).unwrap();
-
-        let mut version = Version::new(
-            caps.name("major").unwrap().as_str().parse().unwrap(),
-            caps.name("minor").unwrap().as_str().parse().unwrap(),
-            caps.name("patch").unwrap().as_str().parse().unwrap(),
-        );
-
-        fn parse_id(v: &str) -> Identifier {
-            match v.parse::<u64>() {
-                Ok(n) => {
-                    if v.len() > 1 && v.starts_with('0') {
-                        Identifier::AlphaNumeric(v.into())
-                    } else {
-                        Identifier::Numeric(n)
-                    }
-                }
-                Err(_) => Identifier::AlphaNumeric(v.into()),
-            }
-        }
-
-        if let Some(pre) = caps.name("prerelease") {
-            let pre = pre.as_str().split('.').map(parse_id).collect::<Vec<_>>();
-            version.pre = pre;
-        }
-        if let Some(build) = caps.name("buildmetadata") {
-            let build = build.as_str().split('.').map(parse_id).collect::<Vec<_>>();
-            version.build = build;
-        }
-
-        let expected = parse::<SemVer>(text).unwrap();
-
-        assert_eq!(version.to_string(), expected.to_string());
-    }
 }
