@@ -832,6 +832,7 @@ impl Display for Segment {
 #[derive(Debug, Copy, Clone)]
 enum State {
     Part(Part),
+    Dot4,
     PreRelease,
     Build,
 }
@@ -844,20 +845,10 @@ where
     let mut tokens = tokens.into_iter();
     let mut version = V::new();
     let mut state = State::Part(Part::Major);
-    let mut potential_dot4 = false;
 
     let mut token_span = match tokens.next() {
         Some(token) => token,
-        None => {
-            return match state {
-                State::Part(Part::Major) => {
-                    Err(ErrorSpan::missing_part(Part::Major, Span::default()))
-                }
-                State::Part(part) => Err(ErrorSpan::missing_part(part, Span::default())),
-                State::PreRelease => Err(ErrorSpan::missing_pre(Span::default())),
-                State::Build => Err(ErrorSpan::missing_build(Span::default())),
-            }
-        }
+        None => return Err(ErrorSpan::missing_part(Part::Major, Span::default())),
     };
 
     loop {
@@ -910,10 +901,7 @@ where
                         Token::Dot => match part {
                             Part::Major => unreachable!(),
                             Part::Minor => State::Part(Part::Patch),
-                            Part::Patch => {
-                                potential_dot4 = true;
-                                State::PreRelease
-                            }
+                            Part::Patch => State::Dot4,
                         },
                         Token::Hyphen => State::PreRelease,
                         Token::Plus => State::Build,
@@ -921,6 +909,39 @@ where
                     };
                 }
             },
+            State::Dot4 => {
+                let next_dot_state = match token_span.token {
+                    // leading zero numbers are still interpreted as numbers
+                    Token::ZeroNumeric | Token::Numeric => {
+                        let v = token_span.span.at(input);
+                        match try_as_number(token_span.token, v) {
+                            Some(num) => {
+                                version.add_additional(num);
+                                State::Dot4
+                            }
+                            None => {
+                                version.add_pre_release(v);
+                                State::PreRelease
+                            }
+                        }
+                    }
+                    // all other tokens directly jump into the pre-release parser
+                    _ => {
+                        state = State::PreRelease;
+                        continue;
+                    }
+                };
+                token_span = match tokens.next() {
+                    None => return finish(version),
+                    Some(token_span) => token_span,
+                };
+                state = match token_span.token {
+                    Token::Dot => next_dot_state,
+                    Token::Hyphen => State::PreRelease,
+                    Token::Plus => State::Build,
+                    _ => return finish_token_and_tokens(token_span, tokens, version),
+                };
+            }
             State::PreRelease => {
                 match token_span.token {
                     Token::Alpha => {
@@ -939,11 +960,6 @@ where
                     }
                     // regular pre-release part
                     Token::Numeric => {
-                        if potential_dot4 {
-                            // tokens = tokens.stash(Token::Numeric);
-                            state = State::Build;
-                            continue;
-                        }
                         version.add_pre_release(token_span.span.at(input));
                     }
                     // unexpected end
@@ -953,7 +969,6 @@ where
                         return Err(ErrorSpan::unexpected(token_span.span));
                     }
                 }
-                potential_dot4 = false;
                 token_span = match tokens.next() {
                     None => return finish(version),
                     Some(token_span) => token_span,
@@ -1010,7 +1025,7 @@ where
                         Err(ErrorSpan::missing_part(Part::Major, token_span.span))
                     }
                     State::Part(part) => Err(ErrorSpan::missing_part(part, token_span.span)),
-                    State::PreRelease => Err(ErrorSpan::missing_pre(token_span.span)),
+                    State::PreRelease | State::Dot4 => Err(ErrorSpan::missing_pre(token_span.span)),
                     State::Build => Err(ErrorSpan::missing_build(token_span.span)),
                 }
             }
@@ -1018,14 +1033,38 @@ where
     }
 }
 
+#[inline]
 fn parse_number(token: TokenSpan, input: &str, part: Part) -> Result<u64, ErrorSpan> {
     parse_number_inner(token, input, part).map_err(|e| ErrorSpan::new(e, token.span))
 }
 
+#[inline]
 fn parse_number_inner(token: TokenSpan, input: &str, part: Part) -> Result<u64, ErrorType> {
-    token
-        .num(part == Part::Major, input)
-        .ok_or_else(|| ErrorType::NotANumber(part))
+    if part == Part::Major {
+        try_as_number_or_vnumber(token, input)
+    } else {
+        try_as_number(token.token, token.span.at(input))
+    }
+    .ok_or_else(|| ErrorType::NotANumber(part))
+}
+
+#[inline]
+fn try_as_number(token: Token, input: &str) -> Option<u64> {
+    match token {
+        Token::Numeric => input.parse::<u64>().ok(),
+        Token::ZeroNumeric => input.parse::<u64>().ok(),
+        _ => None,
+    }
+}
+
+#[inline]
+fn try_as_number_or_vnumber(token: TokenSpan, input: &str) -> Option<u64> {
+    match token.token {
+        Token::Numeric => token.span.at(input).parse::<u64>().ok(),
+        Token::ZeroNumeric => token.span.at(input).parse::<u64>().ok(),
+        Token::VNumeric => token.span.at1(input).parse::<u64>().ok(),
+        _ => None,
+    }
 }
 
 fn finish_tokens<'input, I, V>(tokens: I, value: V) -> Result<V::Out, ErrorSpan>
@@ -1068,7 +1107,7 @@ where
 }
 
 fn is_release_identifier(v: &str) -> bool {
-    eq_bytes_ignore_case(v, "final") || eq_bytes_ignore_case(v, "release")
+    v == "r" || eq_bytes_ignore_case(v, "final") || eq_bytes_ignore_case(v, "release")
 }
 
 fn eq_bytes_ignore_case(left: &str, right: &str) -> bool {
@@ -1242,15 +1281,6 @@ impl TokenSpan {
             span: Span::new(start, end),
         }
     }
-
-    fn num(&self, allow_vnum: bool, input: &str) -> Option<u64> {
-        match self.token {
-            Token::Numeric => self.span.at(input).parse::<u64>().ok(),
-            Token::ZeroNumeric => self.span.at(input).parse::<u64>().ok(),
-            Token::VNumeric if allow_vnum => self.span.at1(input).parse::<u64>().ok(),
-            _ => None,
-        }
-    }
 }
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
@@ -1413,7 +1443,7 @@ mod tests {
     #[test_case("1.9.RC2" => Ok(vers!(1 . 9 . 0 - "RC2")))]
     #[test_case("1.RC3" => Ok(vers!(1 . 0 . 0 - "RC3")))]
     #[test_case("1.3.3-7" => Ok(vers!(1 . 3 . 3 - 7)))]
-    #[test_case("5.9.0-202009080501-r" => Ok(vers!(5 . 9 . 0 - 202009080501 - "r")))]
+    #[test_case("5.9.0-202009080501-r" => Ok(vers!(5 . 9 . 0 - 202009080501 + "r")))]
     #[test_case("1.2.3.RC.4" => Ok(vers!(1 . 2 . 3 - "RC" - 4)))]
     fn test_pre_release(input: &str) -> Result<Version<'_>, Error<'_>> {
         parse::<Version<'_>>(input)
@@ -1430,6 +1460,21 @@ mod tests {
     #[test_case("1.3.3.7" => Ok(vers!(1 . 3 . 3 + 7)))]
     #[test_case("5.9.0.202009080501-r" => Ok(vers!(5 . 9 . 0 + 202009080501 - "r")))]
     fn test_build(input: &str) -> Result<Version<'_>, Error<'_>> {
+        parse::<Version<'_>>(input)
+    }
+
+    #[test_case("1.3.3.7" => Ok(vers!(1 . 3 . 3 + 7)))]
+    #[test_case("1.3.3.0" => Ok(vers!(1 . 3 . 3 + 0)))]
+    #[test_case("1.3.3.00" => Ok(vers!(1 . 3 . 3 + 0)))]
+    #[test_case("1.3.3.07" => Ok(vers!(1 . 3 . 3 + 7)))]
+    #[test_case("1.3.3.7.4.2" => Ok(vers!(1 . 3 . 3 + 7 - 4 - 2)))]
+    #[test_case("1.3.3.7.04.02" => Ok(vers!(1 . 3 . 3 + 7 - 4 - 2)))]
+    #[test_case("1.3.3.9876543210987654321098765432109876543210" => Ok(vers!(1 . 3 . 3 - "9876543210987654321098765432109876543210")))]
+    #[test_case("1.3.3.9876543210987654321098765432109876543210.4.2" => Ok(vers!(1 . 3 . 3 - "9876543210987654321098765432109876543210" - 4 - 2)))]
+    #[test_case("1.3.3.7.foo" => Ok(vers!(1 . 3 . 3 - "foo" + 7)))]
+    #[test_case("1.3.3.7-bar" => Ok(vers!(1 . 3 . 3 - "bar" + 7)))]
+    #[test_case("1.3.3.7+baz" => Ok(vers!(1 . 3 . 3 + 7 - "baz")))]
+    fn test_additional_numbers(input: &str) -> Result<Version<'_>, Error<'_>> {
         parse::<Version<'_>>(input)
     }
 
@@ -1459,6 +1504,15 @@ mod tests {
     #[test_case("2.Release" => Ok(vers!(2 . 0 . 0 + "Release" )); "major dot release")]
     #[test_case("2-Release" => Ok(vers!(2 . 0 . 0 + "Release" )); "major hyphen release")]
     #[test_case("2+Release" => Ok(vers!(2 . 0 . 0 + "Release" )); "major plus release")]
+    #[test_case("2.7.3.r" => Ok(vers!(2 . 7 . 3 + "r" )); "full dot r")]
+    #[test_case("2.7.3-r" => Ok(vers!(2 . 7 . 3 + "r" )); "full hyphen r")]
+    #[test_case("2.7.3+r" => Ok(vers!(2 . 7 . 3 + "r" )); "full plus r")]
+    #[test_case("2.7.r" => Ok(vers!(2 . 7 . 0 + "r" )); "minor dot r")]
+    #[test_case("2.7-r" => Ok(vers!(2 . 7 . 0 + "r" )); "minor hyphen r")]
+    #[test_case("2.7+r" => Ok(vers!(2 . 7 . 0 + "r" )); "minor plus r")]
+    #[test_case("2.r" => Ok(vers!(2 . 0 . 0 + "r" )); "major dot r")]
+    #[test_case("2-r" => Ok(vers!(2 . 0 . 0 + "r" )); "major hyphen r")]
+    #[test_case("2+r" => Ok(vers!(2 . 0 . 0 + "r" )); "major plus r")]
     fn test_with_release_identifier(input: &str) -> Result<Version<'_>, Error<'_>> {
         parse::<Version<'_>>(input)
     }
@@ -1746,6 +1800,7 @@ mod tests {
     #[test_case("release"; "release lower")]
     #[test_case("ReLeAsE"; "release upper sponge")]
     #[test_case("rElEAse"; "release lower sponge")]
+    #[test_case("r"; "release lower r")]
     fn test_is_release_identifier(v: &str) {
         assert!(is_release_identifier(v));
     }
