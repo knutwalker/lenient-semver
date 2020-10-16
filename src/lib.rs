@@ -879,7 +879,6 @@ where
                         return finish_tokens(tokens, version);
                     }
                     // any alpha token skips right into pre-release parsing
-                    // tokens = tokens.stash(Token::Alpha);
                     state = State::PreRelease;
                     continue;
                 }
@@ -912,7 +911,7 @@ where
             State::Dot4 => {
                 let next_dot_state = match token_span.token {
                     // leading zero numbers are still interpreted as numbers
-                    Token::ZeroNumeric | Token::Numeric => {
+                    Token::Numeric | Token::ZeroNumeric => {
                         let v = token_span.span.at(input);
                         match try_as_number(token_span.token, v) {
                             Some(num) => {
@@ -954,12 +953,8 @@ where
                         // regular pre-release part
                         version.add_pre_release(v);
                     }
-                    // leading zero numbers in pre-release are alphanum
-                    Token::ZeroNumeric => {
-                        version.add_pre_release(token_span.span.at(input));
-                    }
-                    // regular pre-release part
-                    Token::Numeric => {
+                    // numbers in pre-release are alphanum
+                    Token::Numeric | Token::ZeroNumeric => {
                         version.add_pre_release(token_span.span.at(input));
                     }
                     // unexpected end
@@ -987,10 +982,8 @@ where
                     match token_span.token {
                         // regular build part
                         Token::Alpha => version.add_build(v),
-                        // leading zero numbers in build are alphanum
-                        Token::ZeroNumeric => version.add_build(v),
-                        // regular build part
-                        Token::Numeric => version.add_build(v),
+                        // numbers in build are alphanum
+                        Token::Numeric | Token::ZeroNumeric => version.add_build(v),
                         // unexpected end
                         Token::Whitespace => {
                             return Err(ErrorSpan::missing_build(token_span.span));
@@ -1051,8 +1044,7 @@ fn parse_number_inner(token: TokenSpan, input: &str, part: Part) -> Result<u64, 
 #[inline]
 fn try_as_number(token: Token, input: &str) -> Option<u64> {
     match token {
-        Token::Numeric => input.parse::<u64>().ok(),
-        Token::ZeroNumeric => input.parse::<u64>().ok(),
+        Token::Numeric | Token::ZeroNumeric => input.parse::<u64>().ok(),
         _ => None,
     }
 }
@@ -1060,8 +1052,7 @@ fn try_as_number(token: Token, input: &str) -> Option<u64> {
 #[inline]
 fn try_as_number_or_vnumber(token: TokenSpan, input: &str) -> Option<u64> {
     match token.token {
-        Token::Numeric => token.span.at(input).parse::<u64>().ok(),
-        Token::ZeroNumeric => token.span.at(input).parse::<u64>().ok(),
+        Token::Numeric | Token::ZeroNumeric => token.span.at(input).parse::<u64>().ok(),
         Token::VNumeric => token.span.at1(input).parse::<u64>().ok(),
         _ => None,
     }
