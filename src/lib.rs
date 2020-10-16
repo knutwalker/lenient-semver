@@ -188,40 +188,76 @@ pub trait VersionBuilder<'input> {
     /// before [`VersionBuilder::build`].
     fn set_patch(&mut self, patch: u64);
 
-    /// Add an alpha-numeric pre-release identifier.
+    /// Add additional numeric components following patch and preceding pre-release.
+    ///
+    /// For a version like `1.2.3.4.5`, this would call add_additional with `4` and `5`.
+    ///
+    /// For strict semver versions, those values are invalid.
+    /// For lenient semver, those values are better represented as build than pre-release,
+    /// although they might be "in the same block" as pre-release.
+    /// In terms of comparing versions, the values added here should still have an impact.
     ///
     /// This component is optional and might not be called
     /// before [`VersionBuilder::build`].
-    ///
-    /// This method might be called multiple times.
-    fn add_pre_release_str(&mut self, pre_release: &'input str);
+    fn add_additional(&mut self, num: u64);
 
-    /// Add a numeric pre-release identifier.
+    /// Add a pre-release identifier.
+    ///
+    /// The string might represent any alpha-numeric identifier,
+    /// including numbers with or without leading zeroes.
+    /// It is up to the implementor to parse those into more specific
+    /// identifiers, if required.
     ///
     /// This component is optional and might not be called
     /// before [`VersionBuilder::build`].
     ///
     /// This method might be called multiple times.
-    fn add_pre_release_num(&mut self, pre_release: u64);
+    fn add_pre_release(&mut self, pre_release: &'input str);
 
-    /// Add an alpha-numeric build identifier.
+    /// Add a build identifier.
+    ///
+    /// The string might represent any alpha-numeric identifier,
+    /// including numbers with or without leading zeroes.
+    /// It is up to the implementor to parse those into more specific
+    /// identifiers, if required.
     ///
     /// This component is optional and might not be called
     /// before [`VersionBuilder::build`].
     ///
     /// This method might be called multiple times.
-    fn add_build_str(&mut self, build: &'input str);
-
-    /// Add a numeric build identifier.
-    ///
-    /// This component is optional and might not be called
-    /// before [`VersionBuilder::build`].
-    ///
-    /// This method might be called multiple times.
-    fn add_build_num(&mut self, build: u64);
+    fn add_build(&mut self, build: &'input str);
 
     /// Construct the final version.
     fn build(self) -> Self::Out;
+}
+
+#[cfg(any(
+    test,
+    feature = "semver",
+    feature = "semver10",
+    feature = "version_lite"
+))]
+fn try_num(s: &str) -> Result<u64, &str> {
+    match s.parse::<u64>() {
+        Ok(num) if !s.starts_with("0") || s == "0" => Ok(num),
+        _ => Err(s),
+    }
+}
+
+#[cfg(feature = "semver")]
+fn try_num_semver(s: &str) -> semver::Identifier {
+    try_num(s).map_err(String::from).map_or_else(
+        semver::Identifier::AlphaNumeric,
+        semver::Identifier::Numeric,
+    )
+}
+
+#[cfg(feature = "semver10")]
+fn try_num_semver10(s: &str) -> semver10::Identifier {
+    try_num(s).map_err(String::from).map_or_else(
+        semver10::Identifier::AlphaNumeric,
+        semver10::Identifier::Numeric,
+    )
 }
 
 #[cfg(feature = "semver")]
@@ -244,22 +280,16 @@ impl<'input> VersionBuilder<'input> for semver::Version {
         self.patch = patch;
     }
 
-    fn add_pre_release_str(&mut self, pre_release: &'input str) {
-        self.pre
-            .push(semver::Identifier::AlphaNumeric(pre_release.into()))
+    fn add_additional(&mut self, num: u64) {
+        self.build.push(semver::Identifier::Numeric(num))
     }
 
-    fn add_pre_release_num(&mut self, pre_release: u64) {
-        self.pre.push(semver::Identifier::Numeric(pre_release))
+    fn add_pre_release(&mut self, pre_release: &'input str) {
+        self.pre.push(try_num_semver(pre_release))
     }
 
-    fn add_build_str(&mut self, build: &'input str) {
-        self.build
-            .push(semver::Identifier::AlphaNumeric(build.into()))
-    }
-
-    fn add_build_num(&mut self, build: u64) {
-        self.build.push(semver::Identifier::Numeric(build))
+    fn add_build(&mut self, build: &'input str) {
+        self.build.push(try_num_semver(build))
     }
 
     fn build(self) -> Self::Out {
@@ -287,22 +317,16 @@ impl<'input> VersionBuilder<'input> for semver10::Version {
         self.patch = patch;
     }
 
-    fn add_pre_release_str(&mut self, pre_release: &'input str) {
-        self.pre
-            .push(semver10::Identifier::AlphaNumeric(pre_release.into()))
+    fn add_additional(&mut self, num: u64) {
+        self.build.push(semver10::Identifier::Numeric(num))
     }
 
-    fn add_pre_release_num(&mut self, pre_release: u64) {
-        self.pre.push(semver10::Identifier::Numeric(pre_release))
+    fn add_pre_release(&mut self, pre_release: &'input str) {
+        self.pre.push(try_num_semver10(pre_release))
     }
 
-    fn add_build_str(&mut self, build: &'input str) {
-        self.build
-            .push(semver10::Identifier::AlphaNumeric(build.into()))
-    }
-
-    fn add_build_num(&mut self, build: u64) {
-        self.build.push(semver10::Identifier::Numeric(build))
+    fn add_build(&mut self, build: &'input str) {
+        self.build.push(try_num_semver10(build))
     }
 
     fn build(self) -> Self::Out {
@@ -382,20 +406,19 @@ impl<'input> VersionBuilder<'input> for VersionLite<'input> {
         self.patch = patch;
     }
 
-    fn add_pre_release_str(&mut self, pre_release: &'input str) {
-        self.pre.push(IdentifierLite::AlphaNumeric(pre_release))
+    fn add_additional(&mut self, num: u64) {
+        self.build.push(IdentifierLite::Numeric(num))
     }
 
-    fn add_pre_release_num(&mut self, pre_release: u64) {
-        self.pre.push(IdentifierLite::Numeric(pre_release))
+    fn add_pre_release(&mut self, pre_release: &'input str) {
+        self.pre.push(
+            try_num(pre_release).map_or_else(IdentifierLite::AlphaNumeric, IdentifierLite::Numeric),
+        )
     }
 
-    fn add_build_str(&mut self, build: &'input str) {
-        self.build.push(IdentifierLite::AlphaNumeric(build))
-    }
-
-    fn add_build_num(&mut self, build: u64) {
-        self.build.push(IdentifierLite::Numeric(build))
+    fn add_build(&mut self, build: &'input str) {
+        self.build
+            .push(try_num(build).map_or_else(IdentifierLite::AlphaNumeric, IdentifierLite::Numeric))
     }
 
     fn build(self) -> Self::Out {
@@ -861,7 +884,7 @@ where
                     let v = token_span.span.at(input);
                     // things like 1.Final, early stop with a single build identifier
                     if is_release_identifier(v) {
-                        version.add_build_str(v);
+                        version.add_build(v);
                         return finish_tokens(tokens, version);
                     }
                     // any alpha token skips right into pre-release parsing
@@ -904,15 +927,15 @@ where
                         let v = token_span.span.at(input);
                         // things like 1.Final, early stop with a single build identifier
                         if is_release_identifier(v) {
-                            version.add_build_str(v);
+                            version.add_build(v);
                             return finish_tokens(tokens, version);
                         }
                         // regular pre-release part
-                        version.add_pre_release_str(v);
+                        version.add_pre_release(v);
                     }
                     // leading zero numbers in pre-release are alphanum
                     Token::ZeroNumeric => {
-                        version.add_pre_release_str(token_span.span.at(input));
+                        version.add_pre_release(token_span.span.at(input));
                     }
                     // regular pre-release part
                     Token::Numeric => {
@@ -921,10 +944,7 @@ where
                             state = State::Build;
                             continue;
                         }
-                        match token_span.num(false, input) {
-                            Some(n) => version.add_pre_release_num(n),
-                            None => version.add_pre_release_str(token_span.span.at(input)),
-                        };
+                        version.add_pre_release(token_span.span.at(input));
                     }
                     // unexpected end
                     Token::Whitespace => return Err(ErrorSpan::missing_pre(token_span.span)),
@@ -951,20 +971,11 @@ where
                     let v = token_span.span.at(input);
                     match token_span.token {
                         // regular build part
-                        Token::Alpha => {
-                            version.add_build_str(v);
-                        }
+                        Token::Alpha => version.add_build(v),
                         // leading zero numbers in build are alphanum
-                        Token::ZeroNumeric => {
-                            version.add_build_str(v);
-                        }
+                        Token::ZeroNumeric => version.add_build(v),
                         // regular build part
-                        Token::Numeric => {
-                            match v.parse::<u64>() {
-                                Ok(n) => version.add_build_num(n),
-                                Err(_) => version.add_build_str(v),
-                            };
-                        }
+                        Token::Numeric => version.add_build(v),
                         // unexpected end
                         Token::Whitespace => {
                             return Err(ErrorSpan::missing_build(token_span.span));
