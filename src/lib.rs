@@ -160,6 +160,41 @@ where
 ///
 /// The trait is generic over the lifetime of the input string, so that one could
 /// parse into a version without having to allocate.
+///
+/// Most methods have a default implementation that does nothing and ignores the input.
+/// This can be used to implement some form of validation without needing to keep the result.
+///
+/// ## Example
+///
+/// ```rust
+/// # use lenient_semver::VersionBuilder;
+///
+/// struct IsPreRelease(bool);
+///
+/// impl<'input> VersionBuilder<'input> for IsPreRelease {
+///     type Out = bool;
+///
+///     fn new() -> Self {
+///        IsPreRelease(false)
+///     }
+///
+///     fn add_pre_release(&mut self, _input: &'input str) {
+///         self.0 = true;
+///     }
+///
+///     fn build(self) -> Self::Out {
+///         self.0
+///     }
+/// }
+///
+/// fn is_pre_release(v: &str) -> bool {
+///     lenient_semver::parse::<IsPreRelease>(v).unwrap_or_default()
+/// }
+///
+/// assert!(is_pre_release("1.2.3-pre"));
+/// assert!(!is_pre_release("1.2.3"));
+/// assert!(!is_pre_release("1.2.3+build"));
+/// ```
 pub trait VersionBuilder<'input> {
     /// The return type of the final version.
     type Out;
@@ -174,19 +209,22 @@ pub trait VersionBuilder<'input> {
     ///
     /// This method is the only required component and will be called
     /// before [`VersionBuilder::build`].
-    fn set_major(&mut self, major: u64);
+    #[allow(unused)]
+    fn set_major(&mut self, major: u64) {}
 
     /// Set the minor version component.
     ///
     /// This component is optional and might not be called
     /// before [`VersionBuilder::build`].
-    fn set_minor(&mut self, minor: u64);
+    #[allow(unused)]
+    fn set_minor(&mut self, minor: u64) {}
 
     /// Set the patch version component.
     ///
     /// This component is optional and might not be called
     /// before [`VersionBuilder::build`].
-    fn set_patch(&mut self, patch: u64);
+    #[allow(unused)]
+    fn set_patch(&mut self, patch: u64) {}
 
     /// Add additional numeric components following patch and preceding pre-release.
     ///
@@ -199,7 +237,8 @@ pub trait VersionBuilder<'input> {
     ///
     /// This component is optional and might not be called
     /// before [`VersionBuilder::build`].
-    fn add_additional(&mut self, num: u64);
+    #[allow(unused)]
+    fn add_additional(&mut self, num: u64) {}
 
     /// Add a pre-release identifier.
     ///
@@ -212,7 +251,8 @@ pub trait VersionBuilder<'input> {
     /// before [`VersionBuilder::build`].
     ///
     /// This method might be called multiple times.
-    fn add_pre_release(&mut self, pre_release: &'input str);
+    #[allow(unused)]
+    fn add_pre_release(&mut self, pre_release: &'input str) {}
 
     /// Add a build identifier.
     ///
@@ -225,7 +265,8 @@ pub trait VersionBuilder<'input> {
     /// before [`VersionBuilder::build`].
     ///
     /// This method might be called multiple times.
-    fn add_build(&mut self, build: &'input str);
+    #[allow(unused)]
+    fn add_build(&mut self, build: &'input str) {}
 
     /// Construct the final version.
     fn build(self) -> Self::Out;
