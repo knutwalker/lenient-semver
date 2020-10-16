@@ -54,5 +54,14 @@ dependencies = [
     "test-just-version_lite-and-semver10-feature",
 ]
 
+[tasks.bench]
+command = "cargo"
+args = ["bench", "--package", "benchmark_runner"]
+
+
+[tasks.bench-clean-results]
+command = "rm"
+args = ["-r", "benchmark_runner/target/criterion"]
+
 [tasks.default]
 dependencies = ["test"]
