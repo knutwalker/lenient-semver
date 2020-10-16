@@ -911,7 +911,7 @@ where
             State::Dot4 => {
                 let next_dot_state = match token_span.token {
                     // leading zero numbers are still interpreted as numbers
-                    Token::Numeric | Token::ZeroNumeric => {
+                    Token::Numeric => {
                         let v = token_span.span.at(input);
                         match try_as_number(token_span.token, v) {
                             Some(num) => {
@@ -954,7 +954,7 @@ where
                         version.add_pre_release(v);
                     }
                     // numbers in pre-release are alphanum
-                    Token::Numeric | Token::ZeroNumeric => {
+                    Token::Numeric => {
                         version.add_pre_release(token_span.span.at(input));
                     }
                     // unexpected end
@@ -983,7 +983,7 @@ where
                         // regular build part
                         Token::Alpha => version.add_build(v),
                         // numbers in build are alphanum
-                        Token::Numeric | Token::ZeroNumeric => version.add_build(v),
+                        Token::Numeric => version.add_build(v),
                         // unexpected end
                         Token::Whitespace => {
                             return Err(ErrorSpan::missing_build(token_span.span));
@@ -1044,7 +1044,7 @@ fn parse_number_inner(token: TokenSpan, input: &str, part: Part) -> Result<u64, 
 #[inline]
 fn try_as_number(token: Token, input: &str) -> Option<u64> {
     match token {
-        Token::Numeric | Token::ZeroNumeric => input.parse::<u64>().ok(),
+        Token::Numeric => input.parse::<u64>().ok(),
         _ => None,
     }
 }
@@ -1052,7 +1052,7 @@ fn try_as_number(token: Token, input: &str) -> Option<u64> {
 #[inline]
 fn try_as_number_or_vnumber(token: TokenSpan, input: &str) -> Option<u64> {
     match token.token {
-        Token::Numeric | Token::ZeroNumeric => token.span.at(input).parse::<u64>().ok(),
+        Token::Numeric => token.span.at(input).parse::<u64>().ok(),
         Token::VNumeric => token.span.at1(input).parse::<u64>().ok(),
         _ => None,
     }
@@ -1143,8 +1143,6 @@ enum Token {
     Whitespace,
     /// numeric component
     Numeric,
-    /// numeric component that begins with a leading zero
-    ZeroNumeric,
     /// numeric component that begins with a leading v
     VNumeric,
     /// alphanumeric component
@@ -1177,33 +1175,23 @@ impl<'input> Iterator for Lexer<'input> {
                 };
                 (end, Token::Whitespace)
             }
-            '0'..='9' => {
-                let (end, is_alpha) = match self.chars.find(|(_, c)| !c.is_ascii_digit()) {
-                    Some((j, c)) => {
-                        if c.is_ascii_alphabetic() {
-                            match self.chars.find(|(_, c)| !c.is_ascii_alphanumeric()) {
-                                Some((j, c)) => {
-                                    self.peeked = Some((j, c));
-                                    (j, true)
-                                }
-                                None => (self.end, true),
+            '0'..='9' => match self.chars.find(|(_, c)| !c.is_ascii_digit()) {
+                Some((j, c)) => {
+                    if c.is_ascii_alphabetic() {
+                        match self.chars.find(|(_, c)| !c.is_ascii_alphanumeric()) {
+                            Some((j, c)) => {
+                                self.peeked = Some((j, c));
+                                (j, Token::Alpha)
                             }
-                        } else {
-                            self.peeked = Some((j, c));
-                            (j, false)
+                            None => (self.end, Token::Alpha),
                         }
+                    } else {
+                        self.peeked = Some((j, c));
+                        (j, Token::Numeric)
                     }
-                    None => (self.end, false),
-                };
-                let token = if is_alpha {
-                    Token::Alpha
-                } else if c == '0' && end - start > 1 {
-                    Token::ZeroNumeric
-                } else {
-                    Token::Numeric
-                };
-                (end, token)
-            }
+                }
+                None => (self.end, Token::Numeric),
+            },
             'v' | 'V' => {
                 let (end, is_alpha) = match self.chars.find(|(_, c)| !c.is_ascii_digit()) {
                     Some((j, c)) => {
@@ -1638,7 +1626,7 @@ mod tests {
                 Token::Dot,
                 Token::Alpha,
                 Token::Hyphen,
-                Token::ZeroNumeric,
+                Token::Numeric,
                 Token::Whitespace,
             ]
         );
@@ -1655,11 +1643,11 @@ mod tests {
                 Token::Dot,
                 Token::Numeric,
                 Token::Dot,
-                Token::ZeroNumeric,
+                Token::Numeric,
                 Token::Dot,
-                Token::ZeroNumeric,
+                Token::Numeric,
                 Token::Dot,
-                Token::ZeroNumeric,
+                Token::Numeric,
                 Token::Dot,
                 Token::Numeric,
                 Token::Dot,
@@ -1757,7 +1745,7 @@ mod tests {
     #[test]
     fn parse_version_number_zero_numeric() {
         assert_eq!(
-            parse_number(TokenSpan::new(Token::ZeroNumeric, 0, 3), "042", Part::Major),
+            parse_number(TokenSpan::new(Token::Numeric, 0, 3), "042", Part::Major),
             Ok(42)
         )
     }
