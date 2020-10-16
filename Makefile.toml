@@ -1,0 +1,58 @@
+[config]
+default_to_workspace = false
+skip_core_tasks = true
+
+[tasks.test-no-features]
+command = "cargo"
+args = ["test", "--no-default-features", "--lib"]
+private = true
+
+[tasks.test-default-features]
+command = "cargo"
+args = ["test", "--verbose"]
+private = true
+
+[tasks.test-version_lite-feature]
+command = "cargo"
+args = ["test", "--features=version_lite", "--lib"]
+private = true
+
+[tasks.test-version_lite-and-semver10-features]
+command = "cargo"
+args = ["test", "--features=version_lite,semver10", "--lib"]
+private = true
+
+[tasks.test-benchmarks]
+command = "cargo"
+args = ["test", "--package", "benchmarks", "--lib"]
+private = true
+
+[tasks.test-just-version_lite-feature]
+command = "cargo"
+args = ["test", "--no-default-features", "--features=version_lite", "--lib"]
+private = true
+
+[tasks.test-just-semver10-feature]
+command = "cargo"
+args = ["test", "--no-default-features", "--features=semver10", "--lib"]
+private = true
+
+[tasks.test-just-version_lite-and-semver10-feature]
+command = "cargo"
+args = ["test", "--no-default-features", "--features=version_lite,semver10", "--lib"]
+private = true
+
+[tasks.test]
+dependencies = [
+    "test-no-features",
+    "test-default-features",
+    "test-version_lite-feature",
+    "test-version_lite-and-semver10-features",
+    "test-benchmarks",
+    "test-just-version_lite-feature",
+    "test-just-semver10-feature",
+    "test-just-version_lite-and-semver10-feature",
+]
+
+[tasks.default]
+dependencies = ["test"]
