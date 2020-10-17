@@ -94,6 +94,8 @@
 //! ```
 //!
 //! ```rust
+//! # #[cfg(not(feature = "semver10"))]
+//! # compile_error!("Please run doc tests with --all-features");
 //! // We have both version of semver available, the older one
 //! // is renamed to `semver010`.
 //! use semver010::Version as Version10;
@@ -116,6 +118,8 @@
 //! but they are added as build attribute to semver Versions.
 //!
 //! ```rust
+//! # #[cfg(not(feature = "version_lite"))]
+//! # compile_error!("Please run doc tests with --all-features");
 //! use lenient_semver::Version;
 //!
 //! let version = lenient_semver::parse_into::<Version>("1.3.3.7").unwrap();
@@ -125,6 +129,8 @@
 //! The native support allows such version to be compared properly, which does not work with semver.
 //!
 //! ```rust
+//! # #[cfg(not(feature = "version_lite"))]
+//! # compile_error!("Please run doc tests with --all-features");
 //! use lenient_semver::Version;
 //!
 //! let version_a = Version::parse("1.3.3.7").unwrap();
@@ -151,6 +157,8 @@
 //! ```rust
 //! # // This example is replicated as test_serde_feature
 //! # // Please try to keep them in sync
+//! # #[cfg(any(not(feature = "version_lite"), not(feature = "version_serde")))]
+//! # compile_error!("Please run doc tests with --all-features");
 //! use lenient_semver::{Version, VersionBuilder};
 //! use serde::Deserialize;
 //!
