@@ -36,7 +36,6 @@
 
 use std::{
     cmp::Ordering,
-    convert::TryFrom,
     fmt::{self, Display, Write},
     hash,
 };
@@ -380,7 +379,7 @@ impl<'input> From<[u64; 3]> for Version<'input> {
 }
 
 #[cfg(feature = "parser")]
-impl<'input> TryFrom<&'input str> for Version<'input> {
+impl<'input> std::convert::TryFrom<&'input str> for Version<'input> {
     type Error = lenient_semver_parser::Error<'input>;
 
     fn try_from(value: &'input str) -> Result<Self, Self::Error> {
@@ -574,19 +573,19 @@ impl Serialize for Version<'_> {
     }
 }
 
-#[cfg(feature = "serde")]
-impl<'de> Deserialize<'de> for Version<'de> {
+#[cfg(all(feature = "serde", feature = "parser"))]
+impl<'de: 'input, 'input> Deserialize<'de> for Version<'input> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct VersionVisitor;
+        struct VersionVisitor<'input>(std::marker::PhantomData<&'input ()>);
 
-        impl<'de> Visitor<'de> for VersionVisitor {
-            type Value = Version<'de>;
+        impl<'de: 'input, 'input> Visitor<'de> for VersionVisitor<'input> {
+            type Value = Version<'input>;
 
             fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
                 formatter.write_str("a version string")
             }
 
-            fn visit_borrowed_str<E>(self, v: &'de str) -> Result<Self::Value, E>
+            fn visit_borrowed_str<E>(self, v: &'input str) -> Result<Self::Value, E>
             where
                 E: de::Error,
             {
@@ -594,7 +593,7 @@ impl<'de> Deserialize<'de> for Version<'de> {
             }
         }
 
-        deserializer.deserialize_str(VersionVisitor)
+        deserializer.deserialize_str(VersionVisitor(std::marker::PhantomData))
     }
 }
 
