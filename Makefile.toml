@@ -11,6 +11,10 @@ workspace = false
 command = "rm"
 args = ["-r", "benchmark_runner/target/criterion"]
 
+[tasks.ci]
+workspace = false
+run_task = { name = "ci-flow", fork = true }
+
 [tasks.readme]
 workspace = false
 command = "cargo"
