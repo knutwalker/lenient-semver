@@ -13,6 +13,7 @@ args = ["-r", "benchmark_runner/target/criterion"]
 
 [tasks.ci]
 workspace = false
+env = { CARGO_MAKE_WORKSPACE_SKIP_MEMBERS = ["benchmark_runner"] }
 run_task = { name = "ci-flow", fork = true }
 
 [tasks.readme]
