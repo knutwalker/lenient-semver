@@ -147,7 +147,7 @@ lenient_semver = { version = "*", features = [ "version_serde" ] }
 ```
 
 This feature also enabled `version_lite` and brings serde support for the own Version type.
-Since the lenient_semver::Version does not take ownership of the metadata snippets,
+Since `lenient_semver::Version` does not take ownership of the metadata identifiers,
 the lifetime of the deserialization result is bound to the input.
 
 ```rust
