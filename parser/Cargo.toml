@@ -1,0 +1,26 @@
+[package]
+name = "lenient_semver_parser"
+version = "0.2.1-alpha.0"
+description = "Lenient parser for Semantic Version numbers."
+authors = ["Paul Horn <developer@knutwalker.de>"]
+edition = "2018"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/knutwalker/lenient-semver/"
+repository = "https://github.com/knutwalker/lenient-semver/"
+categories = ["parser-implementations"]
+keywords = ["lenient", "parser", "semver", "semantic", "version"]
+workspace = ".."
+
+[dependencies]
+semver = { version = "0.11.0", optional = true }
+semver10 = { version = "0.10.0", optional = true, package = "semver" }
+
+[features]
+default = ["semver"]
+
+[dev-dependencies]
+semver = "0.11.0"
+test-case = "1.0.0"
+
+[package.metadata.docs.rs]
+features = ["semver"]
