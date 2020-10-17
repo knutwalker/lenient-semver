@@ -14,6 +14,7 @@ The differenc include:
 - Some pre-release identifiers are parsed as build identifier (e.g. "1.2.3.Final" parses as "1.2.3+Final")
 - Additional numeric identifiers are parsed as build identifier (e.g "1.2.3.4.5" parses as "1.2.3+4.5")
 - A leading `v` or `V` is allowed (e.g. "v1.2.3" parses as "1.2.3")
+- Numbers that overflow an u64 are treated as strings (e.g. "1.2.3-9876543210987654321098765432109876543210" parses without error)
 
 This diagram shows lenient parsing grammar
 
@@ -57,6 +58,12 @@ assert_eq!(
     Version::parse("1.2.3").unwrap()
 );
 assert!(Version::parse("v1.2.3").is_err());
+
+assert_eq!(
+    lenient_semver::parse("1.2.9876543210987654321098765432109876543210").unwrap(),
+    Version::parse("1.2.0-9876543210987654321098765432109876543210").unwrap()
+);
+assert!(Version::parse("1.2.9876543210987654321098765432109876543210").is_err());
 ```
 
 ### Parsing into custom versions

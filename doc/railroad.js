@@ -7,17 +7,14 @@ Diagram(
     Sequence(
 
       // leading whitespace is skipped
-      Optional(NonTerminal('whitespace'), 'skip'),
+      Choice(1, NonTerminal('whitespace'), Skip()),
 
       // leading v is allowed
-      Choice(0,
-        Skip(),
+      Choice(2,
+        Terminal('V'),
         Terminal('v'),
-        Terminal('V')
+        Skip(),
       ),
-
-      // whitespace after the v is skipped
-      Optional(NonTerminal('whitespace'), 'skip'),
 
       // require at least the major version
       NonTerminal('major'),
@@ -38,31 +35,52 @@ Diagram(
 
     ),
 
-    // release and build identifiers
-    Choice(1,
-
-      // any identifiers are optional
-      Skip(),
-
-      // default pre-release and build parsing
+    // regular numbers
+    Optional(
       Sequence(
-        // pre-release delimter
-        Choice(0,
-          Terminal('-'),
-          Terminal('.')
-        ),
-        // followed by a pre-release identifier
-        // or many of them delimited with the same delimiters
         OneOrMore(
-          NonTerminal('pre-release'),
-          Choice(0,
-            Terminal('-'),
-            Terminal('.')
-          )
+          Terminal('.'),
+          NonTerminal('number'),
+        ),
+        Comment("Parses as build identifier"),
+      ),
+      'skip'
+    ),
+
+    // release and build identifiers
+    Choice(0,
+
+      // optional pre-release and build parsing
+      Sequence(
+
+        // optional pre-release parsing
+        Choice(1,
+          // pre-release identifiers are optional
+          Skip(),
+          // pre-release parsing
+          Sequence(
+            // pre-release delimter
+            Choice(0,
+              Terminal('-'),
+              Terminal('.'),
+            ),
+            // followed by a pre-release identifier
+            // or many of them delimited with the same delimiters
+            OneOrMore(
+              NonTerminal('pre-release'),
+              Choice(0,
+                Terminal('.'),
+                Terminal('-'),
+              )
+            ),
+          ),
         ),
 
-        // last optional but, the build identifiers
-        Choice(0,
+        // optional build parsing
+        Choice(1,
+          // build identifiers are optional
+          Skip(),
+          // build parsing
           Sequence(
             // build delimter
             Terminal('+'),
@@ -71,12 +89,11 @@ Diagram(
             OneOrMore(
               NonTerminal('build'),
               Choice(0,
+                Terminal('.'),
                 Terminal('-'),
-                Terminal('.')
               )
-            )
+            ),
           ),
-          Skip(),
         )
       ),
 
@@ -88,21 +105,15 @@ Diagram(
           Terminal('+'),
         ),
         Choice(1,
-          // regular numbers
-          Sequence(
-            Comment("Only after ."),
-            OneOrMore(
-              NonTerminal('number'),
-              Terminal('.')
-            )
-          ),
           Terminal('Final'),
           Terminal('Release'),
-        )
+          Terminal('r'),
+        ),
+        Comment("Parses as build identifier"),
       ),
     ),
 
     // trailing whitespace is skipped
-    Optional(NonTerminal('whitespace'), 'skip'),
+    Choice(1, NonTerminal('whitespace'), Skip()),
   ),
 )

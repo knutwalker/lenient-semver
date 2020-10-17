@@ -41,6 +41,7 @@ use std::{fmt::Display, ops::Range};
 /// - Some pre-release identifiers are parsed as build identifier (e.g. "1.2.3.Final" parses as "1.2.3+Final")
 /// - Additional numeric identifiers are parsed as build identifier (e.g "1.2.3.4.5" parses as "1.2.3+4.5")
 /// - A leading `v` or `V` is allowed (e.g. "v1.2.3" parses as "1.2.3")
+/// - Numbers that overflow an u64 are treated as strings (e.g. "1.2.3-9876543210987654321098765432109876543210" parses without error)
 ///
 /// This diagram shows lenient parsing grammar
 ///
@@ -84,6 +85,12 @@ use std::{fmt::Display, ops::Range};
 ///     Version::parse("1.2.3").unwrap()
 /// );
 /// assert!(Version::parse("v1.2.3").is_err());
+///
+/// assert_eq!(
+///     lenient_semver_parser::parse::<Version>("1.2.9876543210987654321098765432109876543210").unwrap(),
+///     Version::parse("1.2.0-9876543210987654321098765432109876543210").unwrap()
+/// );
+/// assert!(Version::parse("1.2.9876543210987654321098765432109876543210").is_err());
 /// ```
 pub fn parse<'input, V>(input: &'input str) -> Result<V::Out, Error<'input>>
 where
@@ -415,11 +422,7 @@ impl<'input> Error<'input> {
                 Segment::PreRelease => ErrorKind::MissingPreRelease,
                 Segment::Build => ErrorKind::MissingBuild,
             },
-            ErrorType::NotANumber(part) => match part {
-                Part::Major => ErrorKind::MajorNotANumber,
-                Part::Minor => ErrorKind::MinorNotANumber,
-                Part::Patch => ErrorKind::PatchNotANumber,
-            },
+            ErrorType::MajorNotNumeric => ErrorKind::MajorNotANumber,
             ErrorType::Unexpected => ErrorKind::UnexpectedInput,
         }
     }
@@ -457,9 +460,8 @@ impl<'input> Error<'input> {
             ErrorType::Missing(segment) => {
                 format!("Could not parse the {} identifier: No input", segment)
             }
-            ErrorType::NotANumber(part) => format!(
-                "Could not parse the {} identifier: `{}` is not a number",
-                part,
+            ErrorType::MajorNotNumeric => format!(
+                "Could not parse the major identifier: `{}` is not a number",
                 self.erroneous_input()
             ),
             ErrorType::Unexpected => format!("Unexpected `{}`", self.erroneous_input()),
@@ -559,10 +561,6 @@ pub enum ErrorKind {
     MissingBuild,
     /// Trying to parse the major number part, but the input was not a number
     MajorNotANumber,
-    /// Trying to parse the minor number part, but the input was not a number
-    MinorNotANumber,
-    /// Trying to parse the patch number part, but the input was not a number
-    PatchNotANumber,
     /// Found an unexpected input
     UnexpectedInput,
 }
@@ -644,7 +642,7 @@ impl ErrorSpan {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum ErrorType {
     Missing(Segment),
-    NotANumber(Part),
+    MajorNotNumeric,
     Unexpected,
 }
 
@@ -710,7 +708,7 @@ where
                 // skip initial whitespace
                 Token::Whitespace => {}
                 _ => {
-                    version.set_major(parse_number(token_span, input, Part::Major)?);
+                    version.set_major(parse_number_or_vnumber(token_span, input)?);
                     token_span = match tokens.next() {
                         None => return finish(version),
                         Some(token_span) => token_span,
@@ -724,7 +722,7 @@ where
                 }
             },
             State::Part(part) => match token_span.token {
-                Token::Alpha => {
+                Token::Alpha | Token::VNumeric => {
                     let v = token_span.span.at(input);
                     // things like 1.Final, early stop with a single build identifier
                     if is_release_identifier(v) {
@@ -739,7 +737,15 @@ where
                 Token::Whitespace => return Err(ErrorSpan::missing_part(part, token_span.span)),
                 // any other token is tried as a number
                 _ => {
-                    let num = parse_number(token_span, input, part)?;
+                    let v = token_span.span.at(input);
+                    let num = match try_as_number(token_span.token, v) {
+                        Some(num) => num,
+                        None => {
+                            // numeric overflow, interpret as alpha token and skip right into pre-release parsing
+                            state = State::PreRelease;
+                            continue;
+                        }
+                    };
                     match part {
                         Part::Major => unreachable!(),
                         Part::Minor => version.set_minor(num),
@@ -807,7 +813,7 @@ where
                         version.add_pre_release(v);
                     }
                     // numbers in pre-release are alphanum
-                    Token::Numeric => {
+                    Token::Numeric | Token::VNumeric => {
                         version.add_pre_release(token_span.span.at(input));
                     }
                     // unexpected end
@@ -833,10 +839,8 @@ where
                 loop {
                     let v = token_span.span.at(input);
                     match token_span.token {
-                        // regular build part
-                        Token::Alpha => version.add_build(v),
-                        // numbers in build are alphanum
-                        Token::Numeric => version.add_build(v),
+                        // alpha, numeric and vnums are all alphanum build parts
+                        Token::Alpha | Token::Numeric | Token::VNumeric => version.add_build(v),
                         // unexpected end
                         Token::Whitespace => {
                             return Err(ErrorSpan::missing_build(token_span.span));
@@ -880,33 +884,22 @@ where
 }
 
 #[inline]
-fn parse_number(token: TokenSpan, input: &str, part: Part) -> Result<u64, ErrorSpan> {
-    parse_number_inner(token, input, part).map_err(|e| ErrorSpan::new(e, token.span))
-}
-
-#[inline]
-fn parse_number_inner(token: TokenSpan, input: &str, part: Part) -> Result<u64, ErrorType> {
-    if part == Part::Major {
-        try_as_number_or_vnumber(token, input)
-    } else {
-        try_as_number(token.token, token.span.at(input))
+fn parse_number_or_vnumber(token: TokenSpan, input: &str) -> Result<u64, ErrorSpan> {
+    let input = match token.token {
+        Token::Numeric => token.span.at(input),
+        Token::VNumeric => token.span.at1(input),
+        _ => return Err(ErrorSpan::new(ErrorType::MajorNotNumeric, token.span)),
+    };
+    match input.parse::<u64>() {
+        Ok(num) => Ok(num),
+        _ => Err(ErrorSpan::new(ErrorType::MajorNotNumeric, token.span)),
     }
-    .ok_or_else(|| ErrorType::NotANumber(part))
 }
 
 #[inline]
 fn try_as_number(token: Token, input: &str) -> Option<u64> {
     match token {
         Token::Numeric => input.parse::<u64>().ok(),
-        _ => None,
-    }
-}
-
-#[inline]
-fn try_as_number_or_vnumber(token: TokenSpan, input: &str) -> Option<u64> {
-    match token.token {
-        Token::Numeric => token.span.at(input).parse::<u64>().ok(),
-        Token::VNumeric => token.span.at1(input).parse::<u64>().ok(),
         _ => None,
     }
 }
@@ -1352,6 +1345,35 @@ mod tests {
         parse::<Version>(input)
     }
 
+    #[test_case("1.v2" => Ok(vers!(1 . 0 . 0 - "v2")))]
+    #[test_case("1-v3" => Ok(vers!(1 . 0 . 0 - "v3")))]
+    #[test_case("1+v4" => Ok(vers!(1 . 0 . 0 + "v4")))]
+    #[test_case("1.2.v3" => Ok(vers!(1 . 2 . 0 - "v3")))]
+    #[test_case("1.2-v4" => Ok(vers!(1 . 2 . 0 - "v4")))]
+    #[test_case("1.2+v5" => Ok(vers!(1 . 2 . 0 + "v5")))]
+    #[test_case("1.2.3.v4" => Ok(vers!(1 . 2 . 3 - "v4")))]
+    #[test_case("1.2.3-v5" => Ok(vers!(1 . 2 . 3 - "v5")))]
+    #[test_case("1.2.3+v6" => Ok(vers!(1 . 2 . 3 + "v6")))]
+    #[test_case("1.2.3-alpha.v4" => Ok(vers!(1 . 2 . 3 - "alpha" - "v4")))]
+    #[test_case("1.2.3-alpha-v5" => Ok(vers!(1 . 2 . 3 - "alpha" - "v5")))]
+    #[test_case("1.2.3-alpha+v6" => Ok(vers!(1 . 2 . 3 - "alpha" + "v6")))]
+    #[test_case("1.2.3+build.v4" => Ok(vers!(1 . 2 . 3 + "build" - "v4")))]
+    #[test_case("1.2.3+build-v5" => Ok(vers!(1 . 2 . 3 + "build" - "v5")))]
+    #[test_case("1.2.3-alpha.v6+build.v7" => Ok(vers!(1 . 2 . 3 - "alpha" - "v6" + "build" - "v7")))]
+    fn test_v_num_in_the_middle(input: &str) -> Result<Version, Error<'_>> {
+        parse::<Version>(input)
+    }
+
+    #[test_case("1.9876543210987654321098765432109876543210" => Ok(vers!(1 . 0 . 0 - "9876543210987654321098765432109876543210")))]
+    #[test_case("1.9876543210987654321098765432109876543210.2" => Ok(vers!(1 . 0 . 0 - "9876543210987654321098765432109876543210" - 2)))]
+    #[test_case("1.2.9876543210987654321098765432109876543210" => Ok(vers!(1 . 2 . 0 - "9876543210987654321098765432109876543210")))]
+    #[test_case("1.2.3.9876543210987654321098765432109876543210" => Ok(vers!(1 . 2 . 3 - "9876543210987654321098765432109876543210")))]
+    #[test_case("1.2.3-9876543210987654321098765432109876543211" => Ok(vers!(1 . 2 . 3 - "9876543210987654321098765432109876543211")))]
+    #[test_case("1.2.3+9876543210987654321098765432109876543213" => Ok(vers!(1 . 2 . 3 + "9876543210987654321098765432109876543213")))]
+    fn test_too_large_numbers(input: &str) -> Result<Version, Error<'_>> {
+        parse::<Version>(input)
+    }
+
     #[test_case("" => Err(ErrorSpan::new(ErrorType::Missing(Segment::Part(Part::Major)), Span::new(0, 0))))]
     #[test_case("  " => Err(ErrorSpan::new(ErrorType::Missing(Segment::Part(Part::Major)), Span::new(0, 2))))]
     #[test_case("1. " => Err(ErrorSpan::new(ErrorType::Missing(Segment::Part(Part::Minor)), Span::new(2, 3))))]
@@ -1364,15 +1386,15 @@ mod tests {
     #[test_case("1.2.3+." => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 7))); "build trailing dot")]
     #[test_case("1.2.3+-" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 7))); "build trailing hyphen")]
     #[test_case("1.2.3++" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 7))); "build trailing plus")]
-    #[test_case("v.1.2.3" => Err(ErrorSpan::new(ErrorType::NotANumber(Part::Major), Span::new(0, 1))))]
-    #[test_case("v-2.3.4" => Err(ErrorSpan::new(ErrorType::NotANumber(Part::Major), Span::new(0, 1))))]
-    #[test_case("v+3.4.5" => Err(ErrorSpan::new(ErrorType::NotANumber(Part::Major), Span::new(0, 1))))]
-    #[test_case("vv1.2.3" => Err(ErrorSpan::new(ErrorType::NotANumber(Part::Major), Span::new(0, 3))))]
-    #[test_case("v v1.2.3" => Err(ErrorSpan::new(ErrorType::NotANumber(Part::Major), Span::new(0, 1))))]
-    #[test_case("a.b.c" => Err(ErrorSpan::new(ErrorType::NotANumber(Part::Major), Span::new(0, 1))))]
-    #[test_case("1.+.0" => Err(ErrorSpan::new(ErrorType::NotANumber(Part::Minor), Span::new(2, 3))))]
-    #[test_case("1.2.." => Err(ErrorSpan::new(ErrorType::NotANumber(Part::Patch), Span::new(4, 5))))]
-    #[test_case("123456789012345678901234567890" => Err(ErrorSpan::new(ErrorType::NotANumber(Part::Major), Span::new(0, 30))))]
+    #[test_case("v.1.2.3" => Err(ErrorSpan::new(ErrorType::MajorNotNumeric, Span::new(0, 1))))]
+    #[test_case("v-2.3.4" => Err(ErrorSpan::new(ErrorType::MajorNotNumeric, Span::new(0, 1))))]
+    #[test_case("v+3.4.5" => Err(ErrorSpan::new(ErrorType::MajorNotNumeric, Span::new(0, 1))))]
+    #[test_case("vv1.2.3" => Err(ErrorSpan::new(ErrorType::MajorNotNumeric, Span::new(0, 3))))]
+    #[test_case("v v1.2.3" => Err(ErrorSpan::new(ErrorType::MajorNotNumeric, Span::new(0, 1))))]
+    #[test_case("a.b.c" => Err(ErrorSpan::new(ErrorType::MajorNotNumeric, Span::new(0, 1))))]
+    #[test_case("1.+.0" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(2, 3))))]
+    #[test_case("1.2.." => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(4, 5))))]
+    #[test_case("123456789012345678901234567890" => Err(ErrorSpan::new(ErrorType::MajorNotNumeric, Span::new(0, 30))))]
     #[test_case("1 abc" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(2, 5))))]
     #[test_case("1.2.3 abc" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 9))))]
     fn test_simple_errors(input: &str) -> Result<Version, ErrorSpan> {
@@ -1399,11 +1421,11 @@ mod tests {
 |    a.b.c
 |    ^
 "#)]
-    #[test_case("1.+.0" => r#"Could not parse the minor identifier: `+` is not a number
+    #[test_case("1.+.0" => r#"Unexpected `+`
 |    1.+.0
 |    ~~^
 "#)]
-    #[test_case("1.2.." => r#"Could not parse the patch identifier: `.` is not a number
+    #[test_case("1.2.." => r#"Unexpected `.`
 |    1.2..
 |    ~~~~^
 "#)]
@@ -1558,38 +1580,37 @@ mod tests {
     }
 
     #[test]
-    fn parse_version_number_numeric() {
+    fn test_parse_number_or_vnumber_numeric() {
         assert_eq!(
-            parse_number(TokenSpan::new(Token::Numeric, 0, 2), "42", Part::Major),
+            parse_number_or_vnumber(TokenSpan::new(Token::Numeric, 0, 2), "42"),
             Ok(42)
         )
     }
 
     #[test]
-    fn parse_version_number_zero_numeric() {
+    fn test_parse_number_or_vnumber_zero_numeric() {
         assert_eq!(
-            parse_number(TokenSpan::new(Token::Numeric, 0, 3), "042", Part::Major),
+            parse_number_or_vnumber(TokenSpan::new(Token::Numeric, 0, 3), "042"),
             Ok(42)
         )
     }
 
     #[test]
-    fn parse_version_number_v_numeric() {
+    fn test_parse_number_or_vnumber_v_numeric() {
         assert_eq!(
-            parse_number(TokenSpan::new(Token::VNumeric, 0, 3), "v42", Part::Major),
+            parse_number_or_vnumber(TokenSpan::new(Token::VNumeric, 0, 3), "v42"),
             Ok(42)
         )
     }
 
-    #[test_case((Token::Dot, Part::Patch) => Err(ErrorType::NotANumber(Part::Patch)))]
-    #[test_case((Token::Plus, Part::Patch) => Err(ErrorType::NotANumber(Part::Patch)))]
-    #[test_case((Token::Hyphen, Part::Patch) => Err(ErrorType::NotANumber(Part::Patch)))]
-    #[test_case((Token::Whitespace, Part::Patch) => Err(ErrorType::NotANumber(Part::Patch)))]
-    #[test_case((Token::Alpha, Part::Patch) => Err(ErrorType::NotANumber(Part::Patch)))]
-    #[test_case((Token::UnexpectedChar, Part::Patch) => Err(ErrorType::NotANumber(Part::Patch)))]
-    fn parse_version_number_error(v: (Token, Part)) -> Result<u64, ErrorType> {
-        let (token, part) = v;
-        parse_number_inner(TokenSpan::new(token, 0, 1), "x", part)
+    #[test_case(Token::Dot => Err(ErrorType::MajorNotNumeric))]
+    #[test_case(Token::Plus => Err(ErrorType::MajorNotNumeric))]
+    #[test_case(Token::Hyphen => Err(ErrorType::MajorNotNumeric))]
+    #[test_case(Token::Whitespace => Err(ErrorType::MajorNotNumeric))]
+    #[test_case(Token::Alpha => Err(ErrorType::MajorNotNumeric))]
+    #[test_case(Token::UnexpectedChar => Err(ErrorType::MajorNotNumeric))]
+    fn parse_version_number_error(token: Token) -> Result<u64, ErrorType> {
+        parse_number_or_vnumber(TokenSpan::new(token, 0, 1), "x").map_err(|e| e.error)
     }
 
     #[test_case("Final"; "final pascal")]
