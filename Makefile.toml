@@ -22,3 +22,11 @@ run_task = { name = "ci-flow", fork = true }
 workspace = false
 command = "cargo"
 args = ["readme", "--output", "README.md"]
+
+[tasks.t]
+workspace = false
+run_task = { name = "test", fork = true }
+
+[tasks.r]
+workspace = false
+run_task = "readme"
