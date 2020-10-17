@@ -65,6 +65,8 @@
 //! ### Examples
 //!
 //! ```rust
+//! # // This example is replicated in the tests module
+//! # // Please try to keep them in sync
 //! use lenient_semver::VersionBuilder;
 //!
 //! /// Simpler version struct that lives only on the stack
@@ -125,6 +127,8 @@
 //! The following example implements a function that checks if a given string represents any form of pre-release version.
 //!
 //! ```rust
+//! # // This example is replicated in the tests module
+//! # // Please try to keep them in sync
 //! use lenient_semver::VersionBuilder;
 //!
 //! /// newtype around bool, so we can implement the VersionBuilder trait for it
@@ -167,12 +171,13 @@
 //! `lenient_semver` comes with a number of features:
 //!
 //!
-//! |  feature name | default enabled | transitive dependencies | purpose
-//! | ------------: | --------------- | ----------------------- | --------
-//! |      semver11 | **yes**         | `semver = "0.11.0"`     | Provides `VersionBuilder` implementation for `semver = "0.11.0"`.
-//! |      semver10 | no              | `semver = "0.10.0"`     | Provides `VersionBuilder` implementation for `semver = "0.10.0"`.
-//! |  version_lite | no              | `lenient_version = "*"` | A custom Version as alternative to `semver::Version` that complements some leneient features, such as additional numbers beyond patch.
-//! | version_serde | no              | `serde = "1"`           | Serde Deserializer and Serializer implementation for `lenient_version`.
+//! |   feature name | default enabled | transitive dependencies | purpose
+//! | -------------: | --------------- | ----------------------- | --------
+//! |       semver11 | **yes**         | `semver = "0.11.0"`     | Provides `VersionBuilder` implementation for `semver = "0.11.0"`.
+//! |       semver10 | no              | `semver = "0.10.0"`     | Provides `VersionBuilder` implementation for `semver = "0.10.0"`.
+//! |   version_lite | no              | `lenient_version = "*"` | A custom Version as alternative to `semver::Version` that complements some leneient features, such as additional numbers beyond patch.
+//! | version_semver | no              | `lenient_version = "*"` | Add conversions From `lenient_version` Into `semver::Version`.
+//! |  version_serde | no              | `serde = "1"`           | Serde Deserializer and Serializer implementation for `lenient_version`.
 //!
 //!
 //! ### Examples
@@ -249,6 +254,69 @@
 //! assert_eq!(version_a, version_b);
 //! ```
 //!
+//! Furthermore, `Version` does not own the data for the metadata identifiers.
+//! The metadata can be disassociated, so the version can reference a different owner.
+//!
+//! ```rust
+//! # // This example is replicated in the tests module
+//! # // Please try to keep them in sync
+//! # #[cfg(not(feature = "version_lite"))]
+//! # compile_error!("Please run doc tests with --all-features");
+//! use lenient_semver::{Version, VersionBuilder};
+//!
+//! let input = "1.3.3.7-beta.21+build.42";
+//! // make an owned copy, so we don't cheat by using the 'static lifetime.
+//! let input = String::from(input);
+//!
+//! // This version references slices from the `input` String
+//! let version = lenient_semver::parse_into::<Version>(input.as_ref()).unwrap();
+//!
+//! // Which prevents us from dropping the input
+//! // drop(input);
+//!
+//! // We can disassociate the metadata, which allows the new version to reference something else
+//! let (mut version, pre, build) = version.disassociate_metadata();
+//!
+//! // We still get the referenced input slices, so we create owned copies
+//! let pre: Vec<String> = pre.into_iter().map(ToOwned::to_owned).collect();
+//! let build: Vec<String> = build.into_iter().map(ToOwned::to_owned).collect();
+//!
+//! // now we can safely drop the input
+//! drop(input);
+//!
+//! // We can also re-add the cloned identifiers.
+//! // The version would now be bound to the lifetime of this method.
+//! // Just for fun, we swap pre-release and build
+//! for pre in &pre {
+//!     version.add_build(pre.as_ref());
+//! }
+//! for build in &build {
+//!     version.add_pre_release(build.as_ref());
+//! }
+//!
+//! assert_eq!("1.3.3.7-build.42+beta.21".to_string(), version.to_string());
+//! ```
+//!
+//! #### `version_semver`
+//!
+//! ```toml
+//! lenient_semver = { version = "*", features = [ "version_semver" ] }
+//! ```
+//!
+//! If you need to store an owned copy of the version information, you should copy into `semver::Version` or your custom version type instead.
+//! If you only ever intend to store the version information, it might make more sense to parse directly into `semver::Version` instead.
+//!
+//! ```rust
+//! # #[cfg(all(not(feature = "version_lite"), not(feature = "version_semver")))]
+//! # compile_error!("Please run doc tests with --all-features");
+//! use semver::Version;
+//!
+//! let input = String::from("v1.3.3.7-beta-21+build-42");
+//! let version = lenient_semver::Version::parse(&input).unwrap();
+//! let version = Version::from(version);
+//! assert_eq!("1.3.3-beta.21+7.build.42", &version.to_string());
+//! ```
+//!
 //! #### `version_serde`
 //!
 //! ```toml
@@ -260,7 +328,7 @@
 //! the lifetime of the deserialization result is bound to the input.
 //!
 //! ```rust
-//! # // This example is replicated as test_serde_feature
+//! # // This example is replicated in the tests module
 //! # // Please try to keep them in sync
 //! # #[cfg(any(not(feature = "version_lite"), not(feature = "version_serde")))]
 //! # compile_error!("Please run doc tests with --all-features");

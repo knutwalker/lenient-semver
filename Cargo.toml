@@ -24,6 +24,7 @@ default = [ "semver11" ]
 semver11 = [ "semver", "lenient_semver_parser/semver" ]
 semver10 = [ "semver010", "lenient_semver_parser/semver10" ]
 version_lite = [ "lenient_version", "lenient_version/parser" ]
+version_semver = [ "version_lite", "lenient_version/semver" ]
 version_serde = [ "version_lite", "lenient_version/serde" ]
 
 [dev-dependencies]
