@@ -330,6 +330,57 @@ impl<'input> Version<'input> {
         !self.pre.is_empty()
     }
 
+    /// Disassociate this Version by changing the lifetime to something new.
+    ///
+    /// The returned is a copy of self without any metadata.
+    /// Nothing in the new version references 'input, so we can change the lifetime to something else.
+    ///
+    /// The existing identifiers for pre-release and build are returned as well,
+    /// so that users can clone and re-add them.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// # use lenient_version::Version;
+    /// use lenient_semver_parser::VersionBuilder;
+    ///
+    /// let input = String::from("1-pre+build");
+    /// let version = Version::parse(&input).unwrap();
+    ///
+    /// // couldn't drop input here
+    /// // drop(input);
+    ///
+    /// let (mut version, pre, build) = version.disassociate_metadata::<'static>();
+    ///
+    /// assert_eq!(vec!["pre"], pre);
+    /// assert_eq!(vec!["build"], build);
+    ///
+    /// // now we can drop the input
+    /// drop(input);
+    ///
+    /// // We can use the new version after it has be disassociated from `input`.
+    /// assert_eq!("1.0.0", version.to_string());
+    ///
+    /// // only static metadata references are allowed now (because we said 'static earlier)
+    /// version.add_pre_release("pre2");
+    /// version.add_build("build2");
+    ///
+    /// assert_eq!("1.0.0-pre2+build2", version.to_string());
+    /// ```
+    pub fn disassociate_metadata<'a>(self) -> (Version<'a>, Vec<&'input str>, Vec<&'input str>) {
+        let pre = self.pre;
+        let build = self.build;
+        let version = Version {
+            major: self.major,
+            minor: self.minor,
+            patch: self.patch,
+            additional: self.additional,
+            pre: Vec::new(),
+            build: Vec::new(),
+        };
+        (version, pre, build)
+    }
+
     fn clear_metadata(&mut self) {
         self.pre.clear();
         self.build.clear();

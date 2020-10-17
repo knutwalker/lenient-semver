@@ -1,3 +1,6 @@
+[env]
+CARGO_MAKE_WORKSPACE_SKIP_MEMBERS = ["benchmark_runner"]
+
 [tasks.outdated]
 args = ["outdated", "--root-deps-only", "--exit-code", "0"]
 
@@ -10,6 +13,10 @@ args = ["bench", "--package", "benchmark_runner"]
 workspace = false
 command = "rm"
 args = ["-r", "benchmark_runner/target/criterion"]
+
+[tasks.ci]
+workspace = false
+run_task = { name = "ci-flow", fork = true }
 
 [tasks.readme]
 workspace = false
