@@ -29,7 +29,7 @@
     while_true
 )]
 
-use std::{fmt::Display, ops::Range};
+use std::{fmt::Display, ops::Range, str::FromStr};
 
 /// Parse a string slice into a Version.
 ///
@@ -52,51 +52,52 @@ use std::{fmt::Display, ops::Range};
 /// ```rust
 /// use semver::Version;
 ///
-/// let version = lenient_semver_parser::parse::<Version>("1.2.3");
+/// let version = lenient_semver_parser::parse::<Version, _>("1.2.3");
 /// assert_eq!(version, Ok(Version::new(1, 2, 3)));
 ///
 /// // examples of a version that would not be accepted by semver_parser
 /// assert_eq!(
-///     lenient_semver_parser::parse::<Version>("1.2.M1").unwrap(),
+///     lenient_semver_parser::parse::<Version, _>("1.2.M1").unwrap(),
 ///     Version::parse("1.2.0-M1").unwrap()
 /// );
 /// assert!(Version::parse("1.2.M1").is_err());
 ///
 /// assert_eq!(
-///     lenient_semver_parser::parse::<Version>("1").unwrap(),
+///     lenient_semver_parser::parse::<Version, _>("1").unwrap(),
 ///     Version::parse("1.0.0").unwrap()
 /// );
 /// assert!(Version::parse("1").is_err());
 ///
 /// assert_eq!(
-///     lenient_semver_parser::parse::<Version>("1.2.3.Final").unwrap(),
+///     lenient_semver_parser::parse::<Version, _>("1.2.3.Final").unwrap(),
 ///     Version::parse("1.2.3+Final").unwrap()
 /// );
 /// assert!(Version::parse("1.2.3.Final").is_err());
 ///
 /// assert_eq!(
-///     lenient_semver_parser::parse::<Version>("1.2.3.4.5").unwrap(),
+///     lenient_semver_parser::parse::<Version, _>("1.2.3.4.5").unwrap(),
 ///     Version::parse("1.2.3+4.5").unwrap()
 /// );
 /// assert!(Version::parse("1.2.3.4.5").is_err());
 ///
 /// assert_eq!(
-///     lenient_semver_parser::parse::<Version>("v1.2.3").unwrap(),
+///     lenient_semver_parser::parse::<Version, _>("v1.2.3").unwrap(),
 ///     Version::parse("1.2.3").unwrap()
 /// );
 /// assert!(Version::parse("v1.2.3").is_err());
 ///
 /// assert_eq!(
-///     lenient_semver_parser::parse::<Version>("1.2.9876543210987654321098765432109876543210").unwrap(),
+///     lenient_semver_parser::parse::<Version, _>("1.2.9876543210987654321098765432109876543210").unwrap(),
 ///     Version::parse("1.2.0-9876543210987654321098765432109876543210").unwrap()
 /// );
 /// assert!(Version::parse("1.2.9876543210987654321098765432109876543210").is_err());
 /// ```
-pub fn parse<'input, V>(input: &'input str) -> Result<V::Out, Error<'input>>
+pub fn parse<'input, V, N>(input: &'input str) -> Result<V::Out, Error<'input>>
 where
-    V: VersionBuilder<'input>,
+    N: FromStr,
+    V: VersionBuilder<'input, N>,
 {
-    parse_version::<_, V>(input, lex(input)).map_err(|ErrorSpan { error, span }| Error {
+    parse_version::<_, N, V>(input, lex(input)).map_err(|ErrorSpan { error, span }| Error {
         input,
         span,
         error,
@@ -138,14 +139,14 @@ where
 /// }
 ///
 /// fn is_pre_release(v: &str) -> bool {
-///     lenient_semver_parser::parse::<IsPreRelease>(v).unwrap_or_default()
+///     lenient_semver_parser::parse::<IsPreRelease, _>(v).unwrap_or_default()
 /// }
 ///
 /// assert!(is_pre_release("1.2.3-pre"));
 /// assert!(!is_pre_release("1.2.3"));
 /// assert!(!is_pre_release("1.2.3+build"));
 /// ```
-pub trait VersionBuilder<'input> {
+pub trait VersionBuilder<'input, N: FromStr = u64> {
     /// The return type of the final version.
     type Out;
 
@@ -160,21 +161,21 @@ pub trait VersionBuilder<'input> {
     /// This method is the only required component and will be called
     /// before [`VersionBuilder::build`].
     #[allow(unused)]
-    fn set_major(&mut self, major: u64) {}
+    fn set_major(&mut self, major: N) {}
 
     /// Set the minor version component.
     ///
     /// This component is optional and might not be called
     /// before [`VersionBuilder::build`].
     #[allow(unused)]
-    fn set_minor(&mut self, minor: u64) {}
+    fn set_minor(&mut self, minor: N) {}
 
     /// Set the patch version component.
     ///
     /// This component is optional and might not be called
     /// before [`VersionBuilder::build`].
     #[allow(unused)]
-    fn set_patch(&mut self, patch: u64) {}
+    fn set_patch(&mut self, patch: N) {}
 
     /// Add additional numeric components following patch and preceding pre-release.
     ///
@@ -188,7 +189,7 @@ pub trait VersionBuilder<'input> {
     /// This component is optional and might not be called
     /// before [`VersionBuilder::build`].
     #[allow(unused)]
-    fn add_additional(&mut self, num: u64) {}
+    fn add_additional(&mut self, num: N) {}
 
     /// Add a pre-release identifier.
     ///
@@ -328,10 +329,10 @@ impl<'input> VersionBuilder<'input> for semver10::Version {
 /// ```rust
 /// use semver::Version;
 ///
-/// let error = lenient_semver_parser::parse::<Version>("1+").unwrap_err();
+/// let error = lenient_semver_parser::parse::<Version, _>("1+").unwrap_err();
 /// assert_eq!(error.to_string(), "Could not parse the build identifier: No input");
 ///
-/// let error = lenient_semver_parser::parse::<Version>("1!").unwrap_err();
+/// let error = lenient_semver_parser::parse::<Version, _>("1!").unwrap_err();
 /// assert_eq!(error.to_string(), "Unexpected `!`");
 /// ```
 #[derive(Debug, PartialEq, Eq)]
@@ -359,7 +360,7 @@ impl<'input> Error<'input> {
     /// # Examples
     ///
     /// ```rust
-    /// let error = lenient_semver_parser::parse::<semver::Version>("1+").unwrap_err();
+    /// let error = lenient_semver_parser::parse::<semver::Version, _>("1+").unwrap_err();
     /// assert_eq!(error.input(), "1+");
     /// ```
     #[inline]
@@ -372,7 +373,7 @@ impl<'input> Error<'input> {
     /// # Examples
     ///
     /// ```rust
-    /// let error = lenient_semver_parser::parse::<semver::Version>("1+").unwrap_err();
+    /// let error = lenient_semver_parser::parse::<semver::Version, _>("1+").unwrap_err();
     /// assert_eq!(error.error_span(), 1..2);
     /// ```
     #[inline]
@@ -386,27 +387,27 @@ impl<'input> Error<'input> {
     ///
     /// ```rust
     /// assert_eq!(
-    ///     lenient_semver_parser::parse::<semver::Version>("").unwrap_err().error_kind(),
+    ///     lenient_semver_parser::parse::<semver::Version, _>("").unwrap_err().error_kind(),
     ///     lenient_semver_parser::ErrorKind::MissingMajorNumber
     /// );
     /// assert_eq!(
-    ///     lenient_semver_parser::parse::<semver::Version>("1.").unwrap_err().error_kind(),
+    ///     lenient_semver_parser::parse::<semver::Version, _>("1.").unwrap_err().error_kind(),
     ///     lenient_semver_parser::ErrorKind::MissingMinorNumber
     /// );
     /// assert_eq!(
-    ///     lenient_semver_parser::parse::<semver::Version>("1.2.").unwrap_err().error_kind(),
+    ///     lenient_semver_parser::parse::<semver::Version, _>("1.2.").unwrap_err().error_kind(),
     ///     lenient_semver_parser::ErrorKind::MissingPatchNumber
     /// );
     /// assert_eq!(
-    ///     lenient_semver_parser::parse::<semver::Version>("1-").unwrap_err().error_kind(),
+    ///     lenient_semver_parser::parse::<semver::Version, _>("1-").unwrap_err().error_kind(),
     ///     lenient_semver_parser::ErrorKind::MissingPreRelease
     /// );
     /// assert_eq!(
-    ///     lenient_semver_parser::parse::<semver::Version>("1+").unwrap_err().error_kind(),
+    ///     lenient_semver_parser::parse::<semver::Version, _>("1+").unwrap_err().error_kind(),
     ///     lenient_semver_parser::ErrorKind::MissingBuild
     /// );
     /// assert_eq!(
-    ///     lenient_semver_parser::parse::<semver::Version>("1!").unwrap_err().error_kind(),
+    ///     lenient_semver_parser::parse::<semver::Version, _>("1!").unwrap_err().error_kind(),
     ///     lenient_semver_parser::ErrorKind::UnexpectedInput
     /// );
     /// ```
@@ -432,7 +433,7 @@ impl<'input> Error<'input> {
     /// # Examples
     ///
     /// ```rust
-    /// let error = lenient_semver_parser::parse::<semver::Version>("1+").unwrap_err();
+    /// let error = lenient_semver_parser::parse::<semver::Version, _>("1+").unwrap_err();
     /// assert_eq!(error.erroneous_input(), "+");
     /// ```
     #[inline]
@@ -445,14 +446,14 @@ impl<'input> Error<'input> {
     /// # Examples
     ///
     /// ```rust
-    /// let error = lenient_semver_parser::parse::<semver::Version>("1.").unwrap_err();
+    /// let error = lenient_semver_parser::parse::<semver::Version, _>("1.").unwrap_err();
     /// assert_eq!(error.error_line(), String::from("Could not parse the minor identifier: No input"));
     /// ```
     ///
     /// This is equivalent to the [`Display`] implementation, which can be further customized with format specifiers.
     ///
     /// ```rust
-    /// let error = lenient_semver_parser::parse::<semver::Version>("1?").unwrap_err();
+    /// let error = lenient_semver_parser::parse::<semver::Version, _>("1?").unwrap_err();
     /// assert_eq!(format!("{:!^42}", error), String::from("!!!!!!!!!!!!!!Unexpected `?`!!!!!!!!!!!!!!"));
     /// ```
     pub fn error_line(&self) -> String {
@@ -473,10 +474,10 @@ impl<'input> Error<'input> {
     /// # Examples
     ///
     /// ```rust
-    /// let error = lenient_semver_parser::parse::<semver::Version>("foo").unwrap_err();
+    /// let error = lenient_semver_parser::parse::<semver::Version, _>("foo").unwrap_err();
     /// assert_eq!(error.indicate_erroneous_input(), "^^^");
     ///
-    /// let error = lenient_semver_parser::parse::<semver::Version>("1.2.3 bar").unwrap_err();
+    /// let error = lenient_semver_parser::parse::<semver::Version, _>("1.2.3 bar").unwrap_err();
     /// assert_eq!(error.indicate_erroneous_input(), "~~~~~~^^^");
     /// ```
     pub fn indicate_erroneous_input(&self) -> String {
@@ -688,10 +689,11 @@ enum State {
     Build,
 }
 
-fn parse_version<'input, I, V>(input: &'input str, tokens: I) -> Result<V::Out, ErrorSpan>
+fn parse_version<'input, I, N, V>(input: &'input str, tokens: I) -> Result<V::Out, ErrorSpan>
 where
     I: IntoIterator<Item = TokenSpan>,
-    V: VersionBuilder<'input>,
+    N: FromStr,
+    V: VersionBuilder<'input, N>,
 {
     let mut tokens = tokens.into_iter();
     let mut version = V::new();
@@ -884,30 +886,31 @@ where
 }
 
 #[inline]
-fn parse_number_or_vnumber(token: TokenSpan, input: &str) -> Result<u64, ErrorSpan> {
+fn parse_number_or_vnumber<N: FromStr>(token: TokenSpan, input: &str) -> Result<N, ErrorSpan> {
     let input = match token.token {
         Token::Numeric => token.span.at(input),
         Token::VNumeric => token.span.at1(input),
         _ => return Err(ErrorSpan::new(ErrorType::MajorNotNumeric, token.span)),
     };
-    match input.parse::<u64>() {
+    match input.parse::<N>() {
         Ok(num) => Ok(num),
         _ => Err(ErrorSpan::new(ErrorType::MajorNotNumeric, token.span)),
     }
 }
 
 #[inline]
-fn try_as_number(token: Token, input: &str) -> Option<u64> {
+fn try_as_number<N: FromStr>(token: Token, input: &str) -> Option<N> {
     match token {
-        Token::Numeric => input.parse::<u64>().ok(),
+        Token::Numeric => input.parse::<N>().ok(),
         _ => None,
     }
 }
 
-fn finish_tokens<'input, I, V>(tokens: I, value: V) -> Result<V::Out, ErrorSpan>
+fn finish_tokens<'input, I, N, V>(tokens: I, value: V) -> Result<V::Out, ErrorSpan>
 where
     I: Iterator<Item = TokenSpan>,
-    V: VersionBuilder<'input>,
+    N: FromStr,
+    V: VersionBuilder<'input, N>,
 {
     for token in tokens {
         finish_token(token)?;
@@ -915,14 +918,15 @@ where
     finish(value)
 }
 
-fn finish_token_and_tokens<'input, I, V>(
+fn finish_token_and_tokens<'input, I, N, V>(
     token: TokenSpan,
     tokens: I,
     value: V,
 ) -> Result<V::Out, ErrorSpan>
 where
     I: Iterator<Item = TokenSpan>,
-    V: VersionBuilder<'input>,
+    N: FromStr,
+    V: VersionBuilder<'input, N>,
 {
     finish_token(token)?;
     finish_tokens(tokens, value)
@@ -936,9 +940,10 @@ fn finish_token(token: TokenSpan) -> Result<(), ErrorSpan> {
 }
 
 #[inline]
-fn finish<'input, V>(value: V) -> Result<V::Out, ErrorSpan>
+fn finish<'input, N, V>(value: V) -> Result<V::Out, ErrorSpan>
 where
-    V: VersionBuilder<'input>,
+    N: FromStr,
+    V: VersionBuilder<'input, N>,
 {
     Ok(value.build())
 }
@@ -1142,7 +1147,7 @@ mod tests {
     #[cfg(feature = "semver")]
     #[cfg_attr(feature = "semver", test)]
     fn test_parse_semver() {
-        let actual = parse::<Version>("   v1.2.3.4.5-Foo-bar+baz-qux  ").ok();
+        let actual = parse::<Version, u64>("   v1.2.3.4.5-Foo-bar+baz-qux  ").ok();
         let expected = semver::Version::parse("1.2.3-Foo.bar+4.5.baz.qux").ok();
         assert_eq!(actual, expected)
     }
@@ -1150,7 +1155,7 @@ mod tests {
     #[cfg(feature = "semver10")]
     #[cfg_attr(feature = "semver10", test)]
     fn test_parse_semver10() {
-        let actual = parse::<semver10::Version>("   v1.2.3.4.5-Foo-bar+baz-qux  ").ok();
+        let actual = parse::<semver10::Version, u64>("   v1.2.3.4.5-Foo-bar+baz-qux  ").ok();
         let expected = semver10::Version::parse("1.2.3-Foo.bar+4.5.baz.qux").ok();
         assert_eq!(actual, expected)
     }
@@ -1224,7 +1229,7 @@ mod tests {
     #[test_case("1.2.3" => Ok(vers!(1 . 2 . 3)); "major.minor.patch")]
     #[test_case("  1.2.3  " => Ok(vers!(1 . 2 . 3)); "with whitespace")]
     fn test_simple(input: &str) -> Result<Version, Error<'_>> {
-        parse::<Version>(input)
+        parse::<Version, u64>(input)
     }
 
     #[test_case("1.2.3-alpha1" => Ok(vers!(1 . 2 . 3 - "alpha1")))]
@@ -1241,7 +1246,7 @@ mod tests {
     #[test_case("5.9.0-202009080501-r" => Ok(vers!(5 . 9 . 0 - 202009080501 + "r")))]
     #[test_case("1.2.3.RC.4" => Ok(vers!(1 . 2 . 3 - "RC" - 4)))]
     fn test_pre_release(input: &str) -> Result<Version, Error<'_>> {
-        parse::<Version>(input)
+        parse::<Version, u64>(input)
     }
 
     #[test_case("1.2.3+build1" => Ok(vers!(1 . 2 . 3 + "build1")))]
@@ -1255,7 +1260,7 @@ mod tests {
     #[test_case("1.3.3.7" => Ok(vers!(1 . 3 . 3 + 7)))]
     #[test_case("5.9.0.202009080501-r" => Ok(vers!(5 . 9 . 0 + 202009080501 - "r")))]
     fn test_build(input: &str) -> Result<Version, Error<'_>> {
-        parse::<Version>(input)
+        parse::<Version, u64>(input)
     }
 
     #[test_case("1.3.3.7" => Ok(vers!(1 . 3 . 3 + 7)))]
@@ -1270,7 +1275,7 @@ mod tests {
     #[test_case("1.3.3.7-bar" => Ok(vers!(1 . 3 . 3 - "bar" + 7)))]
     #[test_case("1.3.3.7+baz" => Ok(vers!(1 . 3 . 3 + 7 - "baz")))]
     fn test_additional_numbers(input: &str) -> Result<Version, Error<'_>> {
-        parse::<Version>(input)
+        parse::<Version, u64>(input)
     }
 
     #[test_case("1.2.3-alpha1+build5" => Ok(vers!(1 . 2 . 3 - "alpha1" + "build5" )))]
@@ -1278,7 +1283,7 @@ mod tests {
     #[test_case("1.2.3-1.alpha1.9+build5.7.3aedf  " => Ok(vers!(1 . 2 . 3 - 1 - "alpha1" - 9 + "build5" - 7 - "3aedf" )))]
     #[test_case("0.4.0-beta.1+0851523" => Ok(vers!(0 . 4 . 0 - "beta" - 1 + "0851523" )))]
     fn test_combined(input: &str) -> Result<Version, Error<'_>> {
-        parse::<Version>(input)
+        parse::<Version, u64>(input)
     }
 
     #[test_case("2.7.3.Final" => Ok(vers!(2 . 7 . 3 + "Final" )); "full dot final")]
@@ -1309,7 +1314,7 @@ mod tests {
     #[test_case("2-r" => Ok(vers!(2 . 0 . 0 + "r" )); "major hyphen r")]
     #[test_case("2+r" => Ok(vers!(2 . 0 . 0 + "r" )); "major plus r")]
     fn test_with_release_identifier(input: &str) -> Result<Version, Error<'_>> {
-        parse::<Version>(input)
+        parse::<Version, u64>(input)
     }
 
     #[test_case("2020.4.9" => Ok(vers!(2020 . 4 . 9)))]
@@ -1317,7 +1322,7 @@ mod tests {
     #[test_case("2020.4" => Ok(vers!(2020 . 4 . 0)))]
     #[test_case("2020.04" => Ok(vers!(2020 . 4 . 0)))]
     fn test_date_versions(input: &str) -> Result<Version, Error<'_>> {
-        parse::<Version>(input)
+        parse::<Version, u64>(input)
     }
 
     #[test_case("1" => Ok(vers!(1 . 0 . 0)))]
@@ -1330,7 +1335,7 @@ mod tests {
     #[test_case("2.3.4+01" => Ok(vers!(2 . 3 . 4 + "01")))]
     #[test_case("2.3.4+0001" => Ok(vers!(2 . 3 . 4 + "0001")))]
     fn test_leading_zeroes(input: &str) -> Result<Version, Error<'_>> {
-        parse::<Version>(input)
+        parse::<Version, u64>(input)
     }
 
     #[test_case("v1" => Ok(vers!(1 . 0 . 0)))]
@@ -1342,7 +1347,7 @@ mod tests {
     #[test_case("V2.3.4" => Ok(vers!(2 . 3 . 4)))]
     #[test_case("V4.2.4-2" => Ok(vers!(4 . 2 . 4 - 2)))]
     fn test_leading_v(input: &str) -> Result<Version, Error<'_>> {
-        parse::<Version>(input)
+        parse::<Version, u64>(input)
     }
 
     #[test_case("1.v2" => Ok(vers!(1 . 0 . 0 - "v2")))]
@@ -1361,7 +1366,7 @@ mod tests {
     #[test_case("1.2.3+build-v5" => Ok(vers!(1 . 2 . 3 + "build" - "v5")))]
     #[test_case("1.2.3-alpha.v6+build.v7" => Ok(vers!(1 . 2 . 3 - "alpha" - "v6" + "build" - "v7")))]
     fn test_v_num_in_the_middle(input: &str) -> Result<Version, Error<'_>> {
-        parse::<Version>(input)
+        parse::<Version, u64>(input)
     }
 
     #[test_case("1.9876543210987654321098765432109876543210" => Ok(vers!(1 . 0 . 0 - "9876543210987654321098765432109876543210")))]
@@ -1371,7 +1376,7 @@ mod tests {
     #[test_case("1.2.3-9876543210987654321098765432109876543211" => Ok(vers!(1 . 2 . 3 - "9876543210987654321098765432109876543211")))]
     #[test_case("1.2.3+9876543210987654321098765432109876543213" => Ok(vers!(1 . 2 . 3 + "9876543210987654321098765432109876543213")))]
     fn test_too_large_numbers(input: &str) -> Result<Version, Error<'_>> {
-        parse::<Version>(input)
+        parse::<Version, u64>(input)
     }
 
     #[test_case("" => Err(ErrorSpan::new(ErrorType::Missing(Segment::Part(Part::Major)), Span::new(0, 0))))]
@@ -1398,7 +1403,7 @@ mod tests {
     #[test_case("1 abc" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(2, 5))))]
     #[test_case("1.2.3 abc" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 9))))]
     fn test_simple_errors(input: &str) -> Result<Version, ErrorSpan> {
-        parse_version::<_, Version>(input, lex(input))
+        parse_version::<_, _, Version>(input, lex(input))
     }
 
     #[test_case("" => r#"Could not parse the major identifier: No input
@@ -1438,7 +1443,7 @@ mod tests {
 |    ~~~~~~^^^
 "#)]
     fn test_full_errors(input: &str) -> String {
-        format!("{:#}", parse::<Version>(input).unwrap_err())
+        format!("{:#}", parse::<Version, u64>(input).unwrap_err())
     }
 
     #[test]
@@ -1560,7 +1565,7 @@ mod tests {
         ];
         assert_eq!(
             // TODO: assert on spans
-            parse_version::<_, Version>("  1.2.3-1.alpha1.9+build5.7.3aedf   ", tokens),
+            parse_version::<_, _, Version>("  1.2.3-1.alpha1.9+build5.7.3aedf   ", tokens),
             Ok(Version {
                 major: 1,
                 minor: 2,
@@ -1628,13 +1633,13 @@ mod tests {
         assert!(is_release_identifier(v));
     }
 
-    #[test_case("1.2.3" => parse::<Version>("1.2.3.Final"); "dot final")]
-    #[test_case("1.2.3" => parse::<Version>("1.2.3.Release"); "dot release")]
-    #[test_case("1.2.3" => parse::<Version>("1.2.3-Final"); "hyphen final")]
-    #[test_case("1.2.3" => parse::<Version>("1.2.3-Release"); "hyphen release")]
-    #[test_case("1.2.3" => parse::<Version>("1.2.3+Final"); "plus final")]
-    #[test_case("1.2.3" => parse::<Version>("1.2.3+Release"); "plus release")]
+    #[test_case("1.2.3" => parse::<Version, u64>("1.2.3.Final"); "dot final")]
+    #[test_case("1.2.3" => parse::<Version, u64>("1.2.3.Release"); "dot release")]
+    #[test_case("1.2.3" => parse::<Version, u64>("1.2.3-Final"); "hyphen final")]
+    #[test_case("1.2.3" => parse::<Version, u64>("1.2.3-Release"); "hyphen release")]
+    #[test_case("1.2.3" => parse::<Version, u64>("1.2.3+Final"); "plus final")]
+    #[test_case("1.2.3" => parse::<Version, u64>("1.2.3+Release"); "plus release")]
     fn test_release_cmp(v: &str) -> Result<Version, Error<'_>> {
-        parse::<Version>(v)
+        parse::<Version, u64>(v)
     }
 }

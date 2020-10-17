@@ -20,6 +20,7 @@ pub fn parser_benchmarks(c: &mut Criterion) {
         "semver" -> ::benchmarks::semver,
         "lenient" -> ::benchmarks::lenient_semver,
         "lite" -> ::benchmarks::lenient_version,
+        "liteu8" -> ::benchmarks::lenient_version_u8,
     );
 
     run_group!(c, "semver10",

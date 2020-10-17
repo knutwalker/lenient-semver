@@ -37,279 +37,32 @@
 use std::{
     cmp::Ordering,
     fmt::{self, Display, Write},
-    hash,
+    hash::{Hash, Hasher},
+    ops::Add,
+    ops::AddAssign,
+    str::FromStr,
 };
 
 /// Represents a lenient semantic version number.
 ///
 /// The version is bound to the lifetime of the input string.
 #[derive(Debug, Clone, Eq)]
-pub struct Version<'input> {
+pub struct Version<'input, N> {
     /// The major version.
-    pub major: u64,
+    pub major: N,
     /// The minor version.
-    pub minor: u64,
+    pub minor: N,
     /// The patch version.
-    pub patch: u64,
+    pub patch: N,
     /// additional version numbers.
-    pub additional: Vec<u64>,
+    pub additional: Vec<N>,
     /// The pre-release metadata.
     pub pre: Vec<&'input str>,
     /// The build metadata.
     pub build: Vec<&'input str>,
 }
 
-impl<'input> Version<'input> {
-    /// Constructs a new, empty version
-    ///
-    /// ## Examples
-    ///
-    /// ```
-    /// # use lenient_version::Version;
-    /// let version = Version::empty();
-    /// assert_eq!(version.to_string(), "0.0.0")
-    /// ```
-    pub const fn empty() -> Self {
-        Version {
-            major: 0,
-            minor: 0,
-            patch: 0,
-            additional: Vec::new(),
-            pre: Vec::new(),
-            build: Vec::new(),
-        }
-    }
-
-    /// Constructs a new version out of the three regular version components
-    ///
-    /// ## Examples
-    ///
-    /// ```
-    /// # use lenient_version::Version;
-    /// let version = Version::new(1, 2, 3);
-    /// assert_eq!(version.to_string(), "1.2.3")
-    /// ```
-    pub const fn new(major: u64, minor: u64, patch: u64) -> Self {
-        Version {
-            major,
-            minor,
-            patch,
-            additional: Vec::new(),
-            pre: Vec::new(),
-            build: Vec::new(),
-        }
-    }
-
-    /// Parse a string slice into a Version.
-    ///
-    /// This parser does not require semver-specification conformant input and is more lenient in what it allows.
-    /// For more information, see [`lenient_semver_parser`].
-    ///
-    ///
-    /// ## Examples
-    ///
-    /// ```rust
-    /// # use lenient_version::Version;
-    ///
-    /// let version = Version::parse("v1.2.3.4.5+build.42");
-    /// assert!(version.is_ok());
-    /// ```
-    #[cfg(feature = "parser")]
-    pub fn parse(input: &'input str) -> Result<Self, lenient_semver_parser::Error<'input>> {
-        lenient_semver_parser::parse::<Self>(input)
-    }
-
-    /// Bumps the major version.
-    ///
-    /// Sets minor, patch, and additional numbers to 0, removes pre-release and build identifier.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust
-    /// # use lenient_version::Version;
-    ///
-    /// let mut version = Version::parse("1.2.3.4.5-pre+build").unwrap();
-    /// version.bump_major();
-    /// assert_eq!(version.to_string(), "2.0.0.0.0");
-    /// ```
-    pub fn bump_major(&mut self) {
-        self.major += 1;
-        self.minor = 0;
-        self.patch = 0;
-        self.additional.iter_mut().for_each(|n| *n = 0);
-        self.clear_metadata();
-    }
-
-    /// Returns a new version with the major version bumped.
-    ///
-    /// Sets minor, patch, and additional numbers to 0, removes pre-release and build identifier.
-    /// The lifetime for the resulting version can differ from the lifetime of this version.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust
-    /// # use lenient_version::Version;
-    ///
-    /// let version = Version::parse("1.2.3.4.5-pre+build").unwrap();
-    /// assert_eq!(version.bumped_major().to_string(), "2.0.0.0.0");
-    /// ```
-    pub fn bumped_major<'a>(&self) -> Version<'a> {
-        Version {
-            major: self.major + 1,
-            minor: 0,
-            patch: 0,
-            additional: vec![0; self.additional.len()],
-            pre: Vec::new(),
-            build: Vec::new(),
-        }
-    }
-
-    /// Bumps the minor version.
-    ///
-    /// Sets patch and additional numbers to 0, removes pre-release and build identifier.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust
-    /// # use lenient_version::Version;
-    ///
-    /// let mut version = Version::parse("1.2.3.4.5-pre+build").unwrap();
-    /// version.bump_minor();
-    /// assert_eq!(version.to_string(), "1.3.0.0.0");
-    /// ```
-    pub fn bump_minor(&mut self) {
-        self.minor += 1;
-        self.patch = 0;
-        self.additional.iter_mut().for_each(|n| *n = 0);
-        self.clear_metadata();
-    }
-
-    /// Returns a new version with the minor version bumped.
-    ///
-    /// Sets patch and additional numbers to 0, removes pre-release and build identifier.
-    /// The lifetime for the resulting version can differ from the lifetime of this version.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust
-    /// # use lenient_version::Version;
-    ///
-    /// let version = Version::parse("1.2.3.4.5-pre+build").unwrap();
-    /// assert_eq!(version.bumped_minor().to_string(), "1.3.0.0.0");
-    /// ```
-    pub fn bumped_minor<'a>(&self) -> Version<'a> {
-        Version {
-            major: self.major,
-            minor: self.minor + 1,
-            patch: 0,
-            additional: vec![0; self.additional.len()],
-            pre: Vec::new(),
-            build: Vec::new(),
-        }
-    }
-
-    /// Bumps the patch version.
-    ///
-    /// Sets any additional numbers to 0, removes pre-release and build identifier.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust
-    /// # use lenient_version::Version;
-    ///
-    /// let mut version = Version::parse("1.2.3.4.5-pre+build").unwrap();
-    /// version.bump_patch();
-    /// assert_eq!(version.to_string(), "1.2.4.0.0");
-    /// ```
-    pub fn bump_patch(&mut self) {
-        self.patch += 1;
-        self.additional.iter_mut().for_each(|n| *n = 0);
-        self.clear_metadata();
-    }
-
-    /// Returns a new version with the patch version bumped.
-    ///
-    /// Sets any additional numbers to 0, removes pre-release and build identifier.
-    /// The lifetime for the resulting version can differ from the lifetime of this version.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust
-    /// # use lenient_version::Version;
-    ///
-    /// let version = Version::parse("1.2.3.4.5-pre+build").unwrap();
-    /// assert_eq!(version.bumped_patch().to_string(), "1.2.4.0.0");
-    /// ```
-    pub fn bumped_patch<'a>(&self) -> Version<'a> {
-        Version {
-            major: self.major,
-            minor: self.minor,
-            patch: self.patch + 1,
-            additional: vec![0; self.additional.len()],
-            pre: Vec::new(),
-            build: Vec::new(),
-        }
-    }
-
-    /// Bumps any additional version.
-    ///
-    /// Sets any following additional numbers to 0, removes pre-release and build identifier.
-    /// If there are not enough additional numbers, only the pre-release and build identifier is removed.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust
-    /// # use lenient_version::Version;
-    ///
-    /// let mut version = Version::parse("1.2.3.4.5-pre+build").unwrap();
-    /// version.bump_additional(0);
-    /// assert_eq!(version.to_string(), "1.2.3.5.0");
-    ///
-    /// let mut version = Version::parse("1.2.3.4.5-pre+build").unwrap();
-    /// version.bump_additional(1);
-    /// assert_eq!(version.to_string(), "1.2.3.4.6");
-    ///
-    /// let mut version = Version::parse("1.2.3.4.5-pre+build").unwrap();
-    /// version.bump_additional(2);
-    /// assert_eq!(version.to_string(), "1.2.3.4.5");
-    /// ```
-    pub fn bump_additional(&mut self, index: usize) {
-        let mut add = self.additional.iter_mut().skip(index);
-        if let Some(add) = add.next() {
-            *add += 1;
-        }
-        add.for_each(|n| *n = 0);
-        self.clear_metadata();
-    }
-
-    /// Returns a new version with the minor version bumped.
-    ///
-    /// Sets patch and additional numbers to 0, removes pre-release and build identifier.
-    /// The lifetime for the resulting version can differ from the lifetime of this version.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust
-    /// # use lenient_version::Version;
-    ///
-    /// let version = Version::parse("1.2.3.4.5-pre+build").unwrap();
-    /// assert_eq!(version.bumped_additional(0).to_string(), "1.2.3.5.0");
-    /// assert_eq!(version.bumped_additional(1).to_string(), "1.2.3.4.6");
-    /// assert_eq!(version.bumped_additional(2).to_string(), "1.2.3.4.5");
-    /// ```
-    pub fn bumped_additional<'a>(&self, index: usize) -> Version<'a> {
-        let mut version = Version {
-            major: self.major,
-            minor: self.minor,
-            patch: self.patch,
-            additional: self.additional.clone(),
-            pre: Vec::new(),
-            build: Vec::new(),
-        };
-        version.bump_additional(index);
-        version
-    }
-
+impl<N> Version<'_, N> {
     /// Returns true if this version has pre-release metadata, i.e. it represents a pre-release.
     ///
     /// ## Examples
@@ -330,6 +83,40 @@ impl<'input> Version<'input> {
         !self.pre.is_empty()
     }
 
+    fn clear_metadata(&mut self) {
+        self.pre.clear();
+        self.build.clear();
+    }
+}
+
+impl<'input, N> Version<'input, N> {
+    /// Constructs a new version out of the three regular version components
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// # use lenient_version::Version;
+    /// let version = Version::new(1, 2, 3);
+    /// assert_eq!(version.to_string(), "1.2.3")
+    /// ```
+    ///
+    /// This method is also `const fn`
+    ///
+    /// ```
+    /// # use lenient_version::Version;
+    /// static VERSION: Version<u64> = Version::new(1, 2, 3);
+    /// assert_eq!(VERSION.to_string(), "1.2.3")
+    /// ```
+    pub const fn new(major: N, minor: N, patch: N) -> Self {
+        Version {
+            major,
+            minor,
+            patch,
+            additional: Vec::new(),
+            pre: Vec::new(),
+            build: Vec::new(),
+        }
+    }
     /// Disassociate this Version by changing the lifetime to something new.
     ///
     /// The returned is a copy of self without any metadata.
@@ -367,7 +154,7 @@ impl<'input> Version<'input> {
     ///
     /// assert_eq!("1.0.0-pre2+build2", version.to_string());
     /// ```
-    pub fn disassociate_metadata<'a>(self) -> (Version<'a>, Vec<&'input str>, Vec<&'input str>) {
+    pub fn disassociate_metadata<'a>(self) -> (Version<'a, N>, Vec<&'input str>, Vec<&'input str>) {
         let pre = self.pre;
         let build = self.build;
         let version = Version {
@@ -380,69 +167,335 @@ impl<'input> Version<'input> {
         };
         (version, pre, build)
     }
+}
 
-    fn clear_metadata(&mut self) {
-        self.pre.clear();
-        self.build.clear();
+impl<'input, N: Default> Version<'input, N> {
+    /// Constructs a new, empty version
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// # use lenient_version::Version;
+    /// let version = Version::<u64>::empty();
+    /// assert_eq!(version.to_string(), "0.0.0")
+    /// ```
+    pub fn empty() -> Self {
+        Version::new(N::default(), N::default(), N::default())
     }
 }
 
-impl Default for Version<'_> {
+impl<'input, N: FromStr + Default> Version<'input, N> {
+    /// Parse a string slice into a Version.
+    ///
+    /// This parser does not require semver-specification conformant input and is more lenient in what it allows.
+    /// For more information, see [`lenient_semver_parser`].
+    ///
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// # use lenient_version::Version;
+    ///
+    /// let version = Version::<u64>::parse_into("v1.2.3.4.5+build.42");
+    /// assert!(version.is_ok());
+    /// ```
+    #[cfg(feature = "parser")]
+    pub fn parse_into(input: &'input str) -> Result<Self, lenient_semver_parser::Error<'input>> {
+        lenient_semver_parser::parse::<Self, N>(input)
+    }
+}
+
+impl<'input, N: Add<Output = N> + AddAssign + From<u8> + Default + Copy> Version<'input, N> {
+    /// Bumps the major version.
+    ///
+    /// Sets minor, patch, and additional numbers to 0, removes pre-release and build identifier.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// # use lenient_version::Version;
+    ///
+    /// let mut version = Version::parse("1.2.3.4.5-pre+build").unwrap();
+    /// version.bump_major();
+    /// assert_eq!(version.to_string(), "2.0.0.0.0");
+    /// ```
+    pub fn bump_major(&mut self) {
+        self.major += N::from(1);
+        self.minor = N::default();
+        self.patch = N::default();
+        self.additional.iter_mut().for_each(|n| *n = N::default());
+        self.clear_metadata();
+    }
+
+    /// Returns a new version with the major version bumped.
+    ///
+    /// Sets minor, patch, and additional numbers to 0, removes pre-release and build identifier.
+    /// The lifetime for the resulting version can differ from the lifetime of this version.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// # use lenient_version::Version;
+    ///
+    /// let version = Version::parse("1.2.3.4.5-pre+build").unwrap();
+    /// assert_eq!(version.bumped_major().to_string(), "2.0.0.0.0");
+    /// ```
+    pub fn bumped_major<'a>(&self) -> Version<'a, N> {
+        Version {
+            major: self.major + N::from(1),
+            minor: N::default(),
+            patch: N::default(),
+            additional: vec![N::default(); self.additional.len()],
+            pre: Vec::new(),
+            build: Vec::new(),
+        }
+    }
+
+    /// Bumps the minor version.
+    ///
+    /// Sets patch and additional numbers to 0, removes pre-release and build identifier.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// # use lenient_version::Version;
+    ///
+    /// let mut version = Version::parse("1.2.3.4.5-pre+build").unwrap();
+    /// version.bump_minor();
+    /// assert_eq!(version.to_string(), "1.3.0.0.0");
+    /// ```
+    pub fn bump_minor(&mut self) {
+        self.minor += N::from(1);
+        self.patch = N::default();
+        self.additional.iter_mut().for_each(|n| *n = N::default());
+        self.clear_metadata();
+    }
+
+    /// Returns a new version with the minor version bumped.
+    ///
+    /// Sets patch and additional numbers to 0, removes pre-release and build identifier.
+    /// The lifetime for the resulting version can differ from the lifetime of this version.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// # use lenient_version::Version;
+    ///
+    /// let version = Version::parse("1.2.3.4.5-pre+build").unwrap();
+    /// assert_eq!(version.bumped_minor().to_string(), "1.3.0.0.0");
+    /// ```
+    pub fn bumped_minor<'a>(&self) -> Version<'a, N> {
+        Version {
+            major: self.major,
+            minor: self.minor + N::from(1),
+            patch: N::default(),
+            additional: vec![N::default(); self.additional.len()],
+            pre: Vec::new(),
+            build: Vec::new(),
+        }
+    }
+
+    /// Bumps the patch version.
+    ///
+    /// Sets any additional numbers to 0, removes pre-release and build identifier.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// # use lenient_version::Version;
+    ///
+    /// let mut version = Version::parse("1.2.3.4.5-pre+build").unwrap();
+    /// version.bump_patch();
+    /// assert_eq!(version.to_string(), "1.2.4.0.0");
+    /// ```
+    pub fn bump_patch(&mut self) {
+        self.patch += N::from(1);
+        self.additional.iter_mut().for_each(|n| *n = N::default());
+        self.clear_metadata();
+    }
+
+    /// Returns a new version with the patch version bumped.
+    ///
+    /// Sets any additional numbers to 0, removes pre-release and build identifier.
+    /// The lifetime for the resulting version can differ from the lifetime of this version.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// # use lenient_version::Version;
+    ///
+    /// let version = Version::parse("1.2.3.4.5-pre+build").unwrap();
+    /// assert_eq!(version.bumped_patch().to_string(), "1.2.4.0.0");
+    /// ```
+    pub fn bumped_patch<'a>(&self) -> Version<'a, N> {
+        Version {
+            major: self.major,
+            minor: self.minor,
+            patch: self.patch + N::from(1),
+            additional: vec![N::default(); self.additional.len()],
+            pre: Vec::new(),
+            build: Vec::new(),
+        }
+    }
+
+    /// Bumps any additional version.
+    ///
+    /// Sets any following additional numbers to 0, removes pre-release and build identifier.
+    /// If there are not enough additional numbers, only the pre-release and build identifier is removed.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// # use lenient_version::Version;
+    ///
+    /// let mut version = Version::parse("1.2.3.4.5-pre+build").unwrap();
+    /// version.bump_additional(0);
+    /// assert_eq!(version.to_string(), "1.2.3.5.0");
+    ///
+    /// let mut version = Version::parse("1.2.3.4.5-pre+build").unwrap();
+    /// version.bump_additional(1);
+    /// assert_eq!(version.to_string(), "1.2.3.4.6");
+    ///
+    /// let mut version = Version::parse("1.2.3.4.5-pre+build").unwrap();
+    /// version.bump_additional(2);
+    /// assert_eq!(version.to_string(), "1.2.3.4.5");
+    /// ```
+    pub fn bump_additional(&mut self, index: usize) {
+        let mut add = self.additional.iter_mut().skip(index);
+        if let Some(add) = add.next() {
+            *add += N::from(1);
+        }
+        add.for_each(|n| *n = N::default());
+        self.clear_metadata();
+    }
+
+    /// Returns a new version with the minor version bumped.
+    ///
+    /// Sets patch and additional numbers to 0, removes pre-release and build identifier.
+    /// The lifetime for the resulting version can differ from the lifetime of this version.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// # use lenient_version::Version;
+    ///
+    /// let version = Version::parse("1.2.3.4.5-pre+build").unwrap();
+    /// assert_eq!(version.bumped_additional(0).to_string(), "1.2.3.5.0");
+    /// assert_eq!(version.bumped_additional(1).to_string(), "1.2.3.4.6");
+    /// assert_eq!(version.bumped_additional(2).to_string(), "1.2.3.4.5");
+    /// ```
+    pub fn bumped_additional<'a>(&self, index: usize) -> Version<'a, N> {
+        let mut version = Version {
+            major: self.major,
+            minor: self.minor,
+            patch: self.patch,
+            additional: self.additional.clone(),
+            pre: Vec::new(),
+            build: Vec::new(),
+        };
+        version.bump_additional(index);
+        version
+    }
+}
+
+impl<'input> Version<'input, u64> {
+    /// Constructs a new, empty version
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// # use lenient_version::Version;
+    /// let version = Version::zero();
+    /// assert_eq!(version.to_string(), "0.0.0")
+    /// ```
+    ///
+    /// This method is also `const fn`
+    ///
+    /// ```
+    /// # use lenient_version::Version;
+    /// static VERSION: Version<u64> = Version::zero();
+    /// assert_eq!(VERSION.to_string(), "0.0.0")
+    /// ```
+    pub const fn zero() -> Self {
+        Version::new(0, 0, 0)
+    }
+
+    /// Parse a string slice into a Version.
+    ///
+    /// This parser does not require semver-specification conformant input and is more lenient in what it allows.
+    /// For more information, see [`lenient_semver_parser`].
+    ///
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// # use lenient_version::Version;
+    ///
+    /// let version = Version::parse("v1.2.3.4.5+build.42");
+    /// assert!(version.is_ok());
+    /// ```
+    #[cfg(feature = "parser")]
+    pub fn parse(input: &'input str) -> Result<Self, lenient_semver_parser::Error<'input>> {
+        lenient_semver_parser::parse::<Self, u64>(input)
+    }
+}
+
+impl<N: Default> Default for Version<'_, N> {
     fn default() -> Self {
         Self::empty()
     }
 }
 
-impl<'input> From<u64> for Version<'input> {
+impl<'input> From<u64> for Version<'input, u64> {
     fn from(x: u64) -> Self {
         Version::new(x, 0, 0)
     }
 }
 
-impl<'input> From<(u64, u64)> for Version<'input> {
+impl<'input> From<(u64, u64)> for Version<'input, u64> {
     fn from((x, y): (u64, u64)) -> Self {
         Version::new(x, y, 0)
     }
 }
 
-impl<'input> From<(u64, u64, u64)> for Version<'input> {
+impl<'input> From<(u64, u64, u64)> for Version<'input, u64> {
     fn from((x, y, z): (u64, u64, u64)) -> Self {
         Version::new(x, y, z)
     }
 }
 
-impl<'input> From<[u64; 1]> for Version<'input> {
+impl<'input> From<[u64; 1]> for Version<'input, u64> {
     fn from(v: [u64; 1]) -> Self {
         Version::new(v[0], 0, 0)
     }
 }
 
-impl<'input> From<[u64; 2]> for Version<'input> {
+impl<'input> From<[u64; 2]> for Version<'input, u64> {
     fn from(v: [u64; 2]) -> Self {
         Version::new(v[0], v[1], 0)
     }
 }
 
-impl<'input> From<[u64; 3]> for Version<'input> {
+impl<'input> From<[u64; 3]> for Version<'input, u64> {
     fn from(v: [u64; 3]) -> Self {
         Version::new(v[0], v[1], v[2])
     }
 }
 
 #[cfg(feature = "parser")]
-impl<'input> std::convert::TryFrom<&'input str> for Version<'input> {
+impl<'input, N: FromStr + Default> std::convert::TryFrom<&'input str> for Version<'input, N> {
     type Error = lenient_semver_parser::Error<'input>;
 
     fn try_from(value: &'input str) -> Result<Self, Self::Error> {
-        Self::parse(value)
+        Self::parse_into(value)
     }
 }
 
-impl Display for Version<'_> {
+impl<N: Display> Display for Version<'_, N> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut result = String::with_capacity(16);
         write!(result, "{}.{}.{}", self.major, self.minor, self.patch)?;
-        for &additional in self.additional.iter() {
+        for additional in self.additional.iter() {
             write!(result, ".{}", additional)?;
         }
 
@@ -470,7 +523,7 @@ impl Display for Version<'_> {
     }
 }
 
-impl PartialEq for Version<'_> {
+impl<N: PartialEq> PartialEq for Version<'_, N> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.major == other.major
@@ -481,13 +534,13 @@ impl PartialEq for Version<'_> {
     }
 }
 
-impl PartialOrd for Version<'_> {
+impl<N: PartialOrd + Ord + Default> PartialOrd for Version<'_, N> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for Version<'_> {
+impl<N: Ord + Default> Ord for Version<'_, N> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.major
             .cmp(&other.major)
@@ -498,7 +551,7 @@ impl Ord for Version<'_> {
     }
 }
 
-fn cmp_additional(a: &[u64], b: &[u64]) -> Ordering {
+fn cmp_additional<N: Ord + Default>(a: &[N], b: &[N]) -> Ordering {
     AdditionalCmp {
         a: a.iter(),
         b: b.iter(),
@@ -521,19 +574,19 @@ fn cmp_pre<'input>(a: &[&'input str], b: &[&'input str]) -> Ordering {
     }
 }
 
-struct AdditionalCmp<'a, 'b> {
-    a: std::slice::Iter<'a, u64>,
-    b: std::slice::Iter<'b, u64>,
+struct AdditionalCmp<'a, 'b, N> {
+    a: std::slice::Iter<'a, N>,
+    b: std::slice::Iter<'b, N>,
 }
 
-impl<'a, 'b> Iterator for AdditionalCmp<'a, 'b> {
+impl<'a, 'b, N: Ord + Default> Iterator for AdditionalCmp<'a, 'b, N> {
     type Item = Ordering;
 
     fn next(&mut self) -> Option<Self::Item> {
         match (self.a.next(), self.b.next()) {
             (None, None) => None,
-            (Some(a), None) => Some(a.cmp(&0)),
-            (None, Some(b)) => Some(0.cmp(b)),
+            (Some(a), None) => Some(a.cmp(&N::default())),
+            (None, Some(b)) => Some(N::default().cmp(b)),
             (Some(a), Some(b)) => Some(a.cmp(b)),
         }
     }
@@ -566,8 +619,8 @@ fn cmp_pre_str(a: &str, b: &str) -> Ordering {
     }
 }
 
-impl hash::Hash for Version<'_> {
-    fn hash<H: hash::Hasher>(&self, into: &mut H) {
+impl<N: Hash> Hash for Version<'_, N> {
+    fn hash<H: Hasher>(&self, into: &mut H) {
         self.major.hash(into);
         self.minor.hash(into);
         self.patch.hash(into);
@@ -577,26 +630,28 @@ impl hash::Hash for Version<'_> {
 }
 
 #[cfg(feature = "parser")]
-impl<'input> lenient_semver_parser::VersionBuilder<'input> for Version<'input> {
+impl<'input, N: FromStr + Default> lenient_semver_parser::VersionBuilder<'input, N>
+    for Version<'input, N>
+{
     type Out = Self;
 
     fn new() -> Self {
         Version::default()
     }
 
-    fn set_major(&mut self, major: u64) {
+    fn set_major(&mut self, major: N) {
         self.major = major;
     }
 
-    fn set_minor(&mut self, minor: u64) {
+    fn set_minor(&mut self, minor: N) {
         self.minor = minor;
     }
 
-    fn set_patch(&mut self, patch: u64) {
+    fn set_patch(&mut self, patch: N) {
         self.patch = patch;
     }
 
-    fn add_additional(&mut self, num: u64) {
+    fn add_additional(&mut self, num: N) {
         self.additional.push(num);
     }
 
@@ -618,19 +673,19 @@ use serde::de::{self, Deserialize, Deserializer, Visitor};
 #[cfg(feature = "serde")]
 use serde::ser::{Serialize, Serializer};
 #[cfg(feature = "serde")]
-impl Serialize for Version<'_> {
+impl<N: Display> Serialize for Version<'_, N> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.collect_str(self)
     }
 }
 
 #[cfg(all(feature = "serde", feature = "parser"))]
-impl<'de: 'input, 'input> Deserialize<'de> for Version<'input> {
+impl<'de: 'input, 'input, N: FromStr + Default + 'de> Deserialize<'de> for Version<'input, N> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct VersionVisitor<'input>(std::marker::PhantomData<&'input ()>);
+        struct VersionVisitor<'input, N: FromStr + Default>(std::marker::PhantomData<&'input N>);
 
-        impl<'de: 'input, 'input> Visitor<'de> for VersionVisitor<'input> {
-            type Value = Version<'input>;
+        impl<'de: 'input, 'input, N: FromStr + Default> Visitor<'de> for VersionVisitor<'input, N> {
+            type Value = Version<'input, N>;
 
             fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
                 formatter.write_str("a version string")
@@ -640,7 +695,7 @@ impl<'de: 'input, 'input> Deserialize<'de> for Version<'input> {
             where
                 E: de::Error,
             {
-                Version::parse(v).map_err(de::Error::custom)
+                Version::parse_into(v).map_err(de::Error::custom)
             }
         }
 
@@ -649,16 +704,17 @@ impl<'de: 'input, 'input> Deserialize<'de> for Version<'input> {
 }
 
 #[cfg(feature = "semver")]
-impl From<Version<'_>> for semver::Version {
-    fn from(v: Version<'_>) -> Self {
+impl<N: Into<u64>> From<Version<'_, N>> for semver::Version {
+    fn from(v: Version<'_, N>) -> Self {
         semver::Version {
-            major: v.major,
-            minor: v.minor,
-            patch: v.patch,
+            major: v.major.into(),
+            minor: v.minor.into(),
+            patch: v.patch.into(),
             pre: v.pre.into_iter().map(parse_11).collect(),
             build: v
                 .additional
                 .into_iter()
+                .map(Into::into)
                 .map(semver::Identifier::Numeric)
                 .chain(v.build.into_iter().map(parse_11))
                 .collect(),
@@ -667,16 +723,17 @@ impl From<Version<'_>> for semver::Version {
 }
 
 #[cfg(feature = "semver10")]
-impl From<Version<'_>> for semver10::Version {
-    fn from(v: Version<'_>) -> Self {
+impl<N: Into<u64>> From<Version<'_, N>> for semver10::Version {
+    fn from(v: Version<'_, N>) -> Self {
         semver10::Version {
-            major: v.major,
-            minor: v.minor,
-            patch: v.patch,
+            major: v.major.into(),
+            minor: v.minor.into(),
+            patch: v.patch.into(),
             pre: v.pre.into_iter().map(parse_10).collect(),
             build: v
                 .additional
                 .into_iter()
+                .map(Into::into)
                 .map(semver10::Identifier::Numeric)
                 .chain(v.build.into_iter().map(parse_10))
                 .collect(),
@@ -1054,14 +1111,14 @@ mod tests {
     #[cfg(feature = "semver")]
     #[cfg_attr(feature = "semver", test)]
     fn test_into_semver() {
-        let v = Version::new(1, 2, 3);
+        let v = Version::<u64>::new(1, 2, 3);
         assert_eq!(semver::Version::new(1, 2, 3), semver::Version::from(v));
     }
 
     #[cfg(feature = "semver10")]
     #[cfg_attr(feature = "semver10", test)]
     fn test_into_semver10() {
-        let v = Version::new(1, 2, 3);
+        let v = Version::<u64>::new(1, 2, 3);
         assert_eq!(semver10::Version::new(1, 2, 3), semver10::Version::from(v));
     }
 }

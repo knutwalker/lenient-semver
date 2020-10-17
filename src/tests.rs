@@ -55,7 +55,7 @@ mod custom_test {
     fn test_custom_version_builder() {
         let input = "1.3.3.7-alpha21+build.42";
 
-        let my_version = crate::parse_into::<MyVersion>(input).unwrap();
+        let my_version = crate::parse_as::<MyVersion>(input).unwrap();
 
         assert_eq!([1, 3, 3], my_version.numbers);
         assert!(my_version.is_pre_release);
@@ -96,7 +96,7 @@ mod builder_as_validation_test {
     /// which is technically true, as those are not pre-release versions.
     /// Usually you would want to have a better error handling.
     fn is_pre_release(v: &str) -> bool {
-        crate::parse_into::<IsPreRelease>(v).unwrap_or_default()
+        crate::parse_as::<IsPreRelease>(v).unwrap_or_default()
     }
 
     #[test]
@@ -119,7 +119,7 @@ mod version_test {
         let input = String::from(input);
 
         // This version references slices from the `input` String
-        let version = crate::parse_into::<Version>(input.as_ref()).unwrap();
+        let version = crate::parse_as::<Version<_>>(input.as_ref()).unwrap();
 
         // Which prevents us from dropping the input
         // drop(input);
@@ -148,6 +148,54 @@ mod version_test {
     }
 }
 
+#[cfg(feature = "version_lite")]
+mod version_num_test {
+
+    use crate::Version;
+    use std::str::FromStr;
+
+    /// newtype wrapper around an u8
+    /// The parser itself only required FromStr, however
+    /// the VersionBuilder impl also requires Default.
+    /// All other traits are there to make the resulting version Cmp, Eq, etc.
+    /// In order to get the "bump" methods, one would additional need to implement
+    /// Add and AddAssign.
+    /// In order to get rendering, Display would also be required.
+    #[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+    #[repr(transparent)]
+    struct Num(u8);
+
+    /// FromStr has no default Derive, but needs to be implemented for the parsing.
+    /// The Error does not matter, it is being thrown away.
+    impl FromStr for Num {
+        /// We just delegate to whatever error u8 is using
+        type Err = <u8 as FromStr>::Err;
+
+        /// We just delegate to whatever implementation u8 is using
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            s.parse::<u8>().map(Num)
+        }
+    }
+
+    #[test]
+    fn test_version() {
+        // These versions contain the Num type
+        let version_a = crate::parse_into::<Version<Num>, _>("1.2.3").unwrap();
+        let version_b = crate::parse_into::<Version<Num>, _>("1.4.2").unwrap();
+
+        // comparisions work
+        assert_ne!(version_a, version_b);
+        assert!((version_a < version_b) == true);
+        assert!((version_b <= version_a) == false);
+
+        // not that to_string does not work as we didn't implement Display on our Num type
+        assert_eq!(
+            "Version { major: Num(1), minor: Num(2), patch: Num(3), additional: [], pre: [], build: [] }".to_string(),
+            format!("{:?}", version_a)
+        );
+    }
+}
+
 #[cfg(all(feature = "version_lite", feature = "version_serde"))]
 mod serde_test {
 
@@ -159,7 +207,7 @@ mod serde_test {
         name: String,
         /// Borrows from the input string
         #[serde(borrow)]
-        version: Version<'input>,
+        version: Version<'input, u64>,
     }
 
     #[test]

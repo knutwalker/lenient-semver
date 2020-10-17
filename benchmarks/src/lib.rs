@@ -12,17 +12,22 @@ pub const INPUTS: [&str; 2] = [INPUT_S, INPUT_XL];
 
 #[inline(always)]
 pub fn lenient_semver(input: &str) -> Version {
-    parse::<Version>(input).unwrap()
+    parse::<Version, _>(input).unwrap()
 }
 
 #[inline(always)]
-pub fn lenient_version(input: &str) -> VersionLite {
-    parse::<VersionLite>(input).unwrap()
+pub fn lenient_version(input: &str) -> VersionLite<u64> {
+    parse::<VersionLite<u64>, _>(input).unwrap()
+}
+
+#[inline(always)]
+pub fn lenient_version_u8(input: &str) -> VersionLite<u8> {
+    parse::<VersionLite<u8>, _>(input).unwrap()
 }
 
 #[inline(always)]
 pub fn lenient_semver10(input: &str) -> Version10 {
-    parse::<Version10>(input).unwrap()
+    parse::<Version10, _>(input).unwrap()
 }
 
 #[inline(always)]
@@ -116,7 +121,11 @@ mod tests {
         Version10::new(1, 0, 0)
     }
 
-    fn expected_s_lite() -> VersionLite<'static> {
+    fn expected_s_lite() -> VersionLite<'static, u64> {
+        VersionLite::new(1, 0, 0)
+    }
+
+    fn expected_s_lite_u8() -> VersionLite<'static, u8> {
         VersionLite::new(1, 0, 0)
     }
 
@@ -168,7 +177,18 @@ mod tests {
         }
     }
 
-    fn expected_xl_lite() -> VersionLite<'static> {
+    fn expected_xl_lite() -> VersionLite<'static, u64> {
+        VersionLite {
+            major: 1,
+            minor: 2,
+            patch: 3,
+            additional: Vec::new(),
+            pre: vec!["1", "alpha1", "9"],
+            build: vec!["build5", "7", "3aedf", "01337"],
+        }
+    }
+
+    fn expected_xl_lite_u8() -> VersionLite<'static, u8> {
         VersionLite {
             major: 1,
             minor: 2,
@@ -210,8 +230,14 @@ mod tests {
 
     #[test_case(INPUT_S => expected_s_lite())]
     #[test_case(INPUT_XL => expected_xl_lite())]
-    fn test_lenient_lite(input: &str) -> VersionLite {
+    fn test_lenient_lite(input: &str) -> VersionLite<u64> {
         lenient_version(input)
+    }
+
+    #[test_case(INPUT_S => expected_s_lite_u8())]
+    #[test_case(INPUT_XL => expected_xl_lite_u8())]
+    fn test_lenient_lite_u8(input: &str) -> VersionLite<u8> {
+        lenient_version_u8(input)
     }
 
     #[test_case(INPUT_S => expected_s_10())]

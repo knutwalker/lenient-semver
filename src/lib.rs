@@ -451,7 +451,71 @@ pub use lenient_version::{Version, Version as VersionLite};
 /// A more flexible variant is [`lenient_semver::parse_into`].
 #[cfg(feature = "semver11")]
 pub fn parse<'input>(input: &'input str) -> Result<semver::Version, parser::Error<'input>> {
-    parser::parse::<semver::Version>(input)
+    parser::parse::<semver::Version, u64>(input)
+}
+
+/// Parse a string slice into a Version.
+///
+/// This parser does not require semver-specification conformant input and is more lenient in what it allows.
+/// The differenc include:
+///
+/// - Minor and Path are optional an default to 0 (e.g. "1" parses as "1.0.0")
+/// - Pre-release identifier may be separated by `.` as well (e.g. "1.2.3.rc1" parses as "1.2.3-rc1")
+/// - Some pre-release identifiers are parsed as build identifier (e.g. "1.2.3.Final" parses as "1.2.3+Final")
+/// - Additional numeric identifiers are parsed as build identifier (e.g "1.2.3.4.5" parses as "1.2.3+4.5")
+/// - A leading `v` or `V` is allowed (e.g. "v1.2.3" parses as "1.2.3")
+/// - Numbers that overflow an u64 are treated as strings (e.g. "1.2.3-9876543210987654321098765432109876543210" parses without error)
+///
+/// This diagram shows lenient parsing grammar
+///
+/// ![have a look at doc/railroad.svg](https://ssl.webpack.de/ghcdn.knutwalker.de/lenient-semver/doc/railroad.svg)
+///
+/// This method can parse anything that implements [`VersionBuilder`] and will use u64 for its number values.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lenient_semver::Version;
+///
+/// let version = lenient_semver::parse_into::<Version>("1.2.3");
+/// assert_eq!(version, Ok(Version::new(1, 2, 3)));
+///
+/// // examples of a version that would not be accepted by semver_parser
+/// assert_eq!(
+///     lenient_semver::parse_into::<Version>("1.2.M1").unwrap(),
+///     Version::parse("1.2.0-M1").unwrap()
+/// );
+///
+/// assert_eq!(
+///     lenient_semver::parse_into::<Version>("1").unwrap(),
+///     Version::parse("1.0.0").unwrap()
+/// );
+///
+/// assert_eq!(
+///     lenient_semver::parse_into::<Version>("1.2.3.Final").unwrap(),
+///     Version::parse("1.2.3+Final").unwrap()
+/// );
+///
+/// assert_eq!(
+///     lenient_semver::parse_into::<Version>("1.2.3.4.5").unwrap(),
+///     Version::parse("1.2.3.4.5").unwrap()
+/// );
+///
+/// assert_eq!(
+///     lenient_semver::parse_into::<Version>("v1.2.3").unwrap(),
+///     Version::parse("1.2.3").unwrap()
+/// );
+///
+/// assert_eq!(
+///    lenient_semver::parse_into::<Version>("1.2.9876543210987654321098765432109876543210").unwrap(),
+///    Version::parse("1.2.0-9876543210987654321098765432109876543210").unwrap()
+/// );
+/// ```
+pub fn parse_as<'input, V>(input: &'input str) -> Result<V::Out, parser::Error<'input>>
+where
+    V: VersionBuilder<'input, u64>,
+{
+    parser::parse::<V, _>(input)
 }
 
 /// Parse a string slice into a Version.
@@ -511,11 +575,13 @@ pub fn parse<'input>(input: &'input str) -> Result<semver::Version, parser::Erro
 ///    Version::parse("1.2.0-9876543210987654321098765432109876543210").unwrap()
 /// );
 /// ```
-pub fn parse_into<'input, V>(input: &'input str) -> Result<V::Out, parser::Error<'input>>
+pub fn parse_into<'input, V, N: std::str::FromStr>(
+    input: &'input str,
+) -> Result<V::Out, parser::Error<'input>>
 where
-    V: VersionBuilder<'input>,
+    V: VersionBuilder<'input, N>,
 {
-    parser::parse::<V>(input)
+    parser::parse::<V, N>(input)
 }
 
 #[cfg(test)]
