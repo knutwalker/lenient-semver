@@ -722,7 +722,7 @@ where
                 }
             },
             State::Part(part) => match token_span.token {
-                Token::Alpha | Token::VNumeric => {
+                Token::Alpha => {
                     let v = token_span.span.at(input);
                     // things like 1.Final, early stop with a single build identifier
                     if is_release_identifier(v) {
@@ -813,7 +813,7 @@ where
                         version.add_pre_release(v);
                     }
                     // numbers in pre-release are alphanum
-                    Token::Numeric | Token::VNumeric => {
+                    Token::Numeric => {
                         version.add_pre_release(token_span.span.at(input));
                     }
                     // unexpected end
@@ -839,8 +839,8 @@ where
                 loop {
                     let v = token_span.span.at(input);
                     match token_span.token {
-                        // alpha, numeric and vnums are all alphanum build parts
-                        Token::Alpha | Token::Numeric | Token::VNumeric => version.add_build(v),
+                        // alpha and numeric are all alphanum build parts
+                        Token::Alpha | Token::Numeric => version.add_build(v),
                         // unexpected end
                         Token::Whitespace => {
                             return Err(ErrorSpan::missing_build(token_span.span));
@@ -887,7 +887,15 @@ where
 fn parse_number_or_vnumber(token: TokenSpan, input: &str) -> Result<u64, ErrorSpan> {
     let input = match token.token {
         Token::Numeric => token.span.at(input),
-        Token::VNumeric => token.span.at1(input),
+        Token::Alpha => {
+            let input = token.span.at(input);
+            let (prefix, input) = input.split_at(1);
+            if prefix == "v" || prefix == "V" {
+                input
+            } else {
+                return Err(ErrorSpan::new(ErrorType::MajorNotNumeric, token.span));
+            }
+        }
         _ => return Err(ErrorSpan::new(ErrorType::MajorNotNumeric, token.span)),
     };
     match input.parse::<u64>() {
@@ -989,8 +997,6 @@ enum Token {
     Whitespace,
     /// numeric component
     Numeric,
-    /// numeric component that begins with a leading v
-    VNumeric,
     /// alphanumeric component
     Alpha,
     /// `.`
@@ -1038,32 +1044,6 @@ impl<'input> Iterator for Lexer<'input> {
                 }
                 None => (self.end, Token::Numeric),
             },
-            'v' | 'V' => {
-                let (end, is_alpha) = match self.chars.find(|(_, c)| !c.is_ascii_digit()) {
-                    Some((j, c)) => {
-                        if c.is_ascii_alphabetic() {
-                            match self.chars.find(|(_, c)| !c.is_ascii_alphanumeric()) {
-                                Some((j, c)) => {
-                                    self.peeked = Some((j, c));
-                                    (j, true)
-                                }
-                                None => (self.end, true),
-                            }
-                        } else {
-                            self.peeked = Some((j, c));
-                            (j, j - start == 1)
-                        }
-                    }
-                    None => (self.end, false),
-                };
-                // self.span = Span::new(start, end);
-                let token = if is_alpha {
-                    Token::Alpha
-                } else {
-                    Token::VNumeric
-                };
-                (end, token)
-            }
             'A'..='Z' | 'a'..='z' => {
                 let end = match self.chars.find(|(_, c)| !c.is_ascii_alphanumeric()) {
                     Some((j, c)) => {
@@ -1121,10 +1101,6 @@ impl Span {
 
     fn at<'input>(&self, input: &'input str) -> &'input str {
         &input[self.start as usize..self.end as usize]
-    }
-
-    fn at1<'input>(&self, input: &'input str) -> &'input str {
-        &input[(self.start + 1) as usize..self.end as usize]
     }
 }
 
@@ -1391,6 +1367,7 @@ mod tests {
     #[test_case("v+3.4.5" => Err(ErrorSpan::new(ErrorType::MajorNotNumeric, Span::new(0, 1))))]
     #[test_case("vv1.2.3" => Err(ErrorSpan::new(ErrorType::MajorNotNumeric, Span::new(0, 3))))]
     #[test_case("v v1.2.3" => Err(ErrorSpan::new(ErrorType::MajorNotNumeric, Span::new(0, 1))))]
+    #[test_case("a1.2.3" => Err(ErrorSpan::new(ErrorType::MajorNotNumeric, Span::new(0, 2))))]
     #[test_case("a.b.c" => Err(ErrorSpan::new(ErrorType::MajorNotNumeric, Span::new(0, 1))))]
     #[test_case("1.+.0" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(2, 3))))]
     #[test_case("1.2.." => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(4, 5))))]
@@ -1453,7 +1430,7 @@ mod tests {
                 Token::Whitespace,
                 Token::Alpha,
                 Token::Whitespace,
-                Token::VNumeric,
+                Token::Alpha,
                 Token::Dot,
                 Token::Numeric,
                 Token::Dot,
@@ -1598,7 +1575,7 @@ mod tests {
     #[test]
     fn test_parse_number_or_vnumber_v_numeric() {
         assert_eq!(
-            parse_number_or_vnumber(TokenSpan::new(Token::VNumeric, 0, 3), "v42"),
+            parse_number_or_vnumber(TokenSpan::new(Token::Alpha, 0, 3), "v42"),
             Ok(42)
         )
     }
