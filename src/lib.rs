@@ -62,12 +62,12 @@
 //! `lenient_semver` comes with a number of features:
 //!
 //!
-//!  Feature Name | default enabled | transitive dependencies | purpose
-//! -------------:|-----------------|-------------------------|---------
-//!     semver11  | **yes**         | semver = "0.11.0"       | Use `semver::Version` (version 0.11.0) as parse target by providing a `VersionBuilder` implementation.
-//!     semver10  | no              | semver = "0.10.0"       | Use `semver::Version` (version 0.10.0) as parse target by providing a `VersionBuilder` implementation.
-//! version_lite  | no              | lenient_version = "*"   | A custom Version as alternative to `semver::Version` that complements some leneient features, such as additional numbers beyon patch and copy-free metadata parsing.
-//! version_serde | no              | serde = "1"             | Serde Deserializer and Serializer implementation for `lenient_version`
+//! |  feature name | default enabled | transitive dependencies | purpose
+//! | ------------: | --------------- | ----------------------- | --------
+//! |      semver11 | **yes**         | `semver = "0.11.0"`     | Provides `VersionBuilder` implementation for `semver = "0.11.0"`.
+//! |      semver10 | no              | `semver = "0.10.0"`     | Provides `VersionBuilder` implementation for `semver = "0.10.0"`.
+//! |  version_lite | no              | `lenient_version = "*"` | A custom Version as alternative to `semver::Version` that complements some leneient features, such as additional numbers beyond patch.
+//! | version_serde | no              | `serde = "1"`           | Serde Deserializer and Serializer implementation for `lenient_version`.
 //!
 //!
 //! ### Examples
