@@ -272,12 +272,7 @@ pub trait VersionBuilder<'input> {
     fn build(self) -> Self::Out;
 }
 
-#[cfg(any(
-    test,
-    feature = "semver",
-    feature = "semver10",
-    feature = "version_lite"
-))]
+#[cfg(any(test, feature = "semver", feature = "semver10",))]
 fn try_num(s: &str) -> Result<u64, &str> {
     match s.parse::<u64>() {
         Ok(num) if !s.starts_with("0") || s == "0" => Ok(num),
@@ -285,7 +280,7 @@ fn try_num(s: &str) -> Result<u64, &str> {
     }
 }
 
-#[cfg(feature = "semver")]
+#[cfg(any(test, feature = "semver"))]
 fn try_num_semver(s: &str) -> semver::Identifier {
     try_num(s).map_err(String::from).map_or_else(
         semver::Identifier::AlphaNumeric,
@@ -301,7 +296,7 @@ fn try_num_semver10(s: &str) -> semver10::Identifier {
     )
 }
 
-#[cfg(feature = "semver")]
+#[cfg(any(test, feature = "semver"))]
 impl<'input> VersionBuilder<'input> for semver::Version {
     type Out = Self;
 
@@ -372,144 +367,6 @@ impl<'input> VersionBuilder<'input> for semver10::Version {
 
     fn build(self) -> Self::Out {
         self
-    }
-}
-
-#[cfg(any(test, feature = "version_lite"))]
-/// Represents a version number.
-///
-/// This is a lightweight clone of `semver::Version`.
-/// Without any of the bells and whistles of that type.
-///
-/// The version is bound to the lifetime of the input string.
-///
-/// # Correctness Warning
-///
-/// This version implements [`PartialOrd`] and [`PartialEq`] by deriving them,
-/// which results in implementations that do not conform to the
-/// semantic version spec.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct VersionLite<'input> {
-    /// The major version.
-    pub major: u64,
-    /// The minor version.
-    pub minor: u64,
-    /// The patch version.
-    pub patch: u64,
-    /// The pre-release metadata.
-    pub pre: Vec<IdentifierLite<'input>>,
-    /// The build metadata.
-    pub build: Vec<IdentifierLite<'input>>,
-}
-
-#[cfg(any(test, feature = "version_lite"))]
-/// An identifier in the pre-release or build metadata.
-///
-/// This is clone of `semver::Identifier` while not requiring a String allocation.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum IdentifierLite<'input> {
-    /// An identifier that's solely numbers.
-    Numeric(u64),
-    /// An identifier with letters and numbers.
-    AlphaNumeric(&'input str),
-}
-
-#[cfg(any(test, feature = "version_lite"))]
-impl Default for VersionLite<'_> {
-    fn default() -> Self {
-        VersionLite {
-            major: 0,
-            minor: 0,
-            patch: 0,
-            pre: Vec::new(),
-            build: Vec::new(),
-        }
-    }
-}
-
-#[cfg(any(test, feature = "version_lite"))]
-impl<'input> VersionBuilder<'input> for VersionLite<'input> {
-    type Out = Self;
-
-    fn new() -> Self {
-        VersionLite::default()
-    }
-
-    fn set_major(&mut self, major: u64) {
-        self.major = major;
-    }
-
-    fn set_minor(&mut self, minor: u64) {
-        self.minor = minor;
-    }
-
-    fn set_patch(&mut self, patch: u64) {
-        self.patch = patch;
-    }
-
-    fn add_additional(&mut self, num: u64) {
-        self.build.push(IdentifierLite::Numeric(num))
-    }
-
-    fn add_pre_release(&mut self, pre_release: &'input str) {
-        self.pre.push(
-            try_num(pre_release).map_or_else(IdentifierLite::AlphaNumeric, IdentifierLite::Numeric),
-        )
-    }
-
-    fn add_build(&mut self, build: &'input str) {
-        self.build
-            .push(try_num(build).map_or_else(IdentifierLite::AlphaNumeric, IdentifierLite::Numeric))
-    }
-
-    fn build(self) -> Self::Out {
-        self
-    }
-}
-
-#[cfg(all(feature = "semver", feature = "version_lite"))]
-impl From<VersionLite<'_>> for semver::Version {
-    fn from(v: VersionLite<'_>) -> Self {
-        semver::Version {
-            major: v.major,
-            minor: v.minor,
-            patch: v.patch,
-            pre: v.pre.into_iter().map(From::from).collect(),
-            build: v.build.into_iter().map(From::from).collect(),
-        }
-    }
-}
-
-#[cfg(all(feature = "semver", feature = "version_lite"))]
-impl From<IdentifierLite<'_>> for semver::Identifier {
-    fn from(id: IdentifierLite<'_>) -> Self {
-        match id {
-            IdentifierLite::Numeric(v) => semver::Identifier::Numeric(v),
-            IdentifierLite::AlphaNumeric(v) => semver::Identifier::AlphaNumeric(v.into()),
-        }
-    }
-}
-
-#[cfg(all(feature = "semver10", feature = "version_lite"))]
-impl From<VersionLite<'_>> for semver10::Version {
-    fn from(v: VersionLite<'_>) -> Self {
-        semver10::Version {
-            major: v.major,
-            minor: v.minor,
-            patch: v.patch,
-            pre: v.pre.into_iter().map(From::from).collect(),
-            build: v.build.into_iter().map(From::from).collect(),
-        }
-    }
-}
-
-#[cfg(all(feature = "semver10", feature = "version_lite"))]
-impl From<IdentifierLite<'_>> for semver10::Identifier {
-    fn from(id: IdentifierLite<'_>) -> Self {
-        match id {
-            IdentifierLite::Numeric(v) => semver10::Identifier::Numeric(v),
-            IdentifierLite::AlphaNumeric(v) => semver10::Identifier::AlphaNumeric(v.into()),
-        }
     }
 }
 
@@ -1347,9 +1204,23 @@ mod tests {
     use test_case::test_case;
 
     #[cfg(feature = "semver")]
+    #[cfg_attr(feature = "semver", test)]
+    fn test_parse_semver() {
+        let actual = parse::<Version>("   v1.2.3.4.5-Foo-bar+baz-qux  ").ok();
+        let expected = semver::Version::parse("1.2.3-Foo.bar+4.5.baz.qux").ok();
+        assert_eq!(actual, expected)
+    }
+
+    #[cfg(feature = "semver10")]
+    #[cfg_attr(feature = "semver10", test)]
+    fn test_parse_semver10() {
+        let actual = parse::<semver10::Version>("   v1.2.3.4.5-Foo-bar+baz-qux  ").ok();
+        let expected = semver10::Version::parse("1.2.3-Foo.bar+4.5.baz.qux").ok();
+        assert_eq!(actual, expected)
+    }
+
     mod semver_helpers {
-        pub(super) use semver::{Identifier, Version as SemVer};
-        pub(super) type Version<'input> = SemVer;
+        pub(super) use semver::{Identifier, Version};
 
         pub(super) trait IntoIdentifier {
             fn into_itentifier(self) -> Identifier;
@@ -1363,50 +1234,6 @@ mod tests {
 
         impl IntoIdentifier for u64 {
             fn into_itentifier(self) -> Identifier {
-                Identifier::Numeric(self)
-            }
-        }
-    }
-
-    #[cfg(all(not(feature = "semver"), feature = "semver10"))]
-    mod semver_helpers {
-        pub(super) use semver10::{Identifier, Version as SemVer};
-        pub(super) type Version<'input> = SemVer;
-
-        pub(super) trait IntoIdentifier {
-            fn into_itentifier(self) -> Identifier;
-        }
-
-        impl IntoIdentifier for &str {
-            fn into_itentifier(self) -> Identifier {
-                Identifier::AlphaNumeric(self.into())
-            }
-        }
-
-        impl IntoIdentifier for u64 {
-            fn into_itentifier(self) -> Identifier {
-                Identifier::Numeric(self)
-            }
-        }
-    }
-
-    #[cfg(all(not(feature = "semver"), not(feature = "semver10")))]
-    mod semver_helpers {
-        pub(super) use super::{IdentifierLite as Identifier, VersionLite};
-        pub(super) type Version<'input> = VersionLite<'input>;
-
-        pub(super) trait IntoIdentifier<'input> {
-            fn into_itentifier(self) -> Identifier<'input>;
-        }
-
-        impl<'input> IntoIdentifier<'input> for &'input str {
-            fn into_itentifier(self) -> Identifier<'input> {
-                Identifier::AlphaNumeric(self)
-            }
-        }
-
-        impl<'input> IntoIdentifier<'input> for u64 {
-            fn into_itentifier(self) -> Identifier<'input> {
                 Identifier::Numeric(self)
             }
         }
@@ -1460,8 +1287,8 @@ mod tests {
     #[test_case("1.2" => Ok(vers!(1 . 2 . 0)); "major.minor only")]
     #[test_case("1.2.3" => Ok(vers!(1 . 2 . 3)); "major.minor.patch")]
     #[test_case("  1.2.3  " => Ok(vers!(1 . 2 . 3)); "with whitespace")]
-    fn test_simple(input: &str) -> Result<Version<'_>, Error<'_>> {
-        parse::<Version<'_>>(input)
+    fn test_simple(input: &str) -> Result<Version, Error<'_>> {
+        parse::<Version>(input)
     }
 
     #[test_case("1.2.3-alpha1" => Ok(vers!(1 . 2 . 3 - "alpha1")))]
@@ -1477,8 +1304,8 @@ mod tests {
     #[test_case("1.3.3-7" => Ok(vers!(1 . 3 . 3 - 7)))]
     #[test_case("5.9.0-202009080501-r" => Ok(vers!(5 . 9 . 0 - 202009080501 + "r")))]
     #[test_case("1.2.3.RC.4" => Ok(vers!(1 . 2 . 3 - "RC" - 4)))]
-    fn test_pre_release(input: &str) -> Result<Version<'_>, Error<'_>> {
-        parse::<Version<'_>>(input)
+    fn test_pre_release(input: &str) -> Result<Version, Error<'_>> {
+        parse::<Version>(input)
     }
 
     #[test_case("1.2.3+build1" => Ok(vers!(1 . 2 . 3 + "build1")))]
@@ -1491,8 +1318,8 @@ mod tests {
     #[test_case("7.2.0+28-2f9fb552" => Ok(vers!(7 . 2 . 0 + 28 -  "2f9fb552" )))]
     #[test_case("1.3.3.7" => Ok(vers!(1 . 3 . 3 + 7)))]
     #[test_case("5.9.0.202009080501-r" => Ok(vers!(5 . 9 . 0 + 202009080501 - "r")))]
-    fn test_build(input: &str) -> Result<Version<'_>, Error<'_>> {
-        parse::<Version<'_>>(input)
+    fn test_build(input: &str) -> Result<Version, Error<'_>> {
+        parse::<Version>(input)
     }
 
     #[test_case("1.3.3.7" => Ok(vers!(1 . 3 . 3 + 7)))]
@@ -1506,16 +1333,16 @@ mod tests {
     #[test_case("1.3.3.7.foo" => Ok(vers!(1 . 3 . 3 - "foo" + 7)))]
     #[test_case("1.3.3.7-bar" => Ok(vers!(1 . 3 . 3 - "bar" + 7)))]
     #[test_case("1.3.3.7+baz" => Ok(vers!(1 . 3 . 3 + 7 - "baz")))]
-    fn test_additional_numbers(input: &str) -> Result<Version<'_>, Error<'_>> {
-        parse::<Version<'_>>(input)
+    fn test_additional_numbers(input: &str) -> Result<Version, Error<'_>> {
+        parse::<Version>(input)
     }
 
     #[test_case("1.2.3-alpha1+build5" => Ok(vers!(1 . 2 . 3 - "alpha1" + "build5" )))]
     #[test_case("   1.2.3-alpha2+build6   " => Ok(vers!(1 . 2 . 3 - "alpha2" + "build6" )))]
     #[test_case("1.2.3-1.alpha1.9+build5.7.3aedf  " => Ok(vers!(1 . 2 . 3 - 1 - "alpha1" - 9 + "build5" - 7 - "3aedf" )))]
     #[test_case("0.4.0-beta.1+0851523" => Ok(vers!(0 . 4 . 0 - "beta" - 1 + "0851523" )))]
-    fn test_combined(input: &str) -> Result<Version<'_>, Error<'_>> {
-        parse::<Version<'_>>(input)
+    fn test_combined(input: &str) -> Result<Version, Error<'_>> {
+        parse::<Version>(input)
     }
 
     #[test_case("2.7.3.Final" => Ok(vers!(2 . 7 . 3 + "Final" )); "full dot final")]
@@ -1545,16 +1372,16 @@ mod tests {
     #[test_case("2.r" => Ok(vers!(2 . 0 . 0 + "r" )); "major dot r")]
     #[test_case("2-r" => Ok(vers!(2 . 0 . 0 + "r" )); "major hyphen r")]
     #[test_case("2+r" => Ok(vers!(2 . 0 . 0 + "r" )); "major plus r")]
-    fn test_with_release_identifier(input: &str) -> Result<Version<'_>, Error<'_>> {
-        parse::<Version<'_>>(input)
+    fn test_with_release_identifier(input: &str) -> Result<Version, Error<'_>> {
+        parse::<Version>(input)
     }
 
     #[test_case("2020.4.9" => Ok(vers!(2020 . 4 . 9)))]
     #[test_case("2020.04.09" => Ok(vers!(2020 . 4 . 9)))]
     #[test_case("2020.4" => Ok(vers!(2020 . 4 . 0)))]
     #[test_case("2020.04" => Ok(vers!(2020 . 4 . 0)))]
-    fn test_date_versions(input: &str) -> Result<Version<'_>, Error<'_>> {
-        parse::<Version<'_>>(input)
+    fn test_date_versions(input: &str) -> Result<Version, Error<'_>> {
+        parse::<Version>(input)
     }
 
     #[test_case("1" => Ok(vers!(1 . 0 . 0)))]
@@ -1566,8 +1393,8 @@ mod tests {
     #[test_case("2.3.4+1" => Ok(vers!(2 . 3 . 4 + 1)))]
     #[test_case("2.3.4+01" => Ok(vers!(2 . 3 . 4 + "01")))]
     #[test_case("2.3.4+0001" => Ok(vers!(2 . 3 . 4 + "0001")))]
-    fn test_leading_zeroes(input: &str) -> Result<Version<'_>, Error<'_>> {
-        parse::<Version<'_>>(input)
+    fn test_leading_zeroes(input: &str) -> Result<Version, Error<'_>> {
+        parse::<Version>(input)
     }
 
     #[test_case("v1" => Ok(vers!(1 . 0 . 0)))]
@@ -1578,8 +1405,8 @@ mod tests {
     #[test_case("  V5  " => Ok(vers!(5 . 0 . 0)))]
     #[test_case("V2.3.4" => Ok(vers!(2 . 3 . 4)))]
     #[test_case("V4.2.4-2" => Ok(vers!(4 . 2 . 4 - 2)))]
-    fn test_leading_v(input: &str) -> Result<Version<'_>, Error<'_>> {
-        parse::<Version<'_>>(input)
+    fn test_leading_v(input: &str) -> Result<Version, Error<'_>> {
+        parse::<Version>(input)
     }
 
     #[test_case("" => Err(ErrorSpan::new(ErrorType::Missing(Segment::Part(Part::Major)), Span::new(0, 0))))]
@@ -1605,8 +1432,8 @@ mod tests {
     #[test_case("123456789012345678901234567890" => Err(ErrorSpan::new(ErrorType::NotANumber(Part::Major), Span::new(0, 30))))]
     #[test_case("1 abc" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(2, 5))))]
     #[test_case("1.2.3 abc" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 9))))]
-    fn test_simple_errors(input: &str) -> Result<Version<'_>, ErrorSpan> {
-        parse_version::<_, Version<'_>>(input, lex(input))
+    fn test_simple_errors(input: &str) -> Result<Version, ErrorSpan> {
+        parse_version::<_, Version>(input, lex(input))
     }
 
     #[test_case("" => r#"Could not parse the major identifier: No input
@@ -1646,7 +1473,7 @@ mod tests {
 |    ~~~~~~^^^
 "#)]
     fn test_full_errors(input: &str) -> String {
-        format!("{:#}", parse::<Version<'_>>(input).unwrap_err())
+        format!("{:#}", parse::<Version>(input).unwrap_err())
     }
 
     #[test]
@@ -1768,7 +1595,7 @@ mod tests {
         ];
         assert_eq!(
             // TODO: assert on spans
-            parse_version::<_, Version<'_>>("  1.2.3-1.alpha1.9+build5.7.3aedf   ", tokens),
+            parse_version::<_, Version>("  1.2.3-1.alpha1.9+build5.7.3aedf   ", tokens),
             Ok(Version {
                 major: 1,
                 minor: 2,
@@ -1837,68 +1664,13 @@ mod tests {
         assert!(is_release_identifier(v));
     }
 
-    #[cfg_attr(any(feature = "semver", feature = "semver10"), test_case("1.2.3" => parse::<Version<'_>>("1.2.3.Final"); "dot final"))]
-    #[cfg_attr(any(feature = "semver", feature = "semver10"), test_case("1.2.3" => parse::<Version<'_>>("1.2.3.Release"); "dot release"))]
-    #[cfg_attr(any(feature = "semver", feature = "semver10"), test_case("1.2.3" => parse::<Version<'_>>("1.2.3-Final"); "hyphen final"))]
-    #[cfg_attr(any(feature = "semver", feature = "semver10"), test_case("1.2.3" => parse::<Version<'_>>("1.2.3-Release"); "hyphen release"))]
-    #[cfg_attr(any(feature = "semver", feature = "semver10"), test_case("1.2.3" => parse::<Version<'_>>("1.2.3+Final"); "plus final"))]
-    #[cfg_attr(any(feature = "semver", feature = "semver10"), test_case("1.2.3" => parse::<Version<'_>>("1.2.3+Release"); "plus release"))]
-    #[cfg(any(feature = "semver", feature = "semver10"))]
-    fn test_release_cmp(v: &str) -> Result<Version<'_>, Error<'_>> {
-        parse::<Version<'_>>(v)
-    }
-
-    #[cfg_attr(
-        all(
-            any(
-                all(not(feature = "semver"), feature = "semver10"),
-                all(feature = "semver", not(feature = "semver10"))
-            ),
-            feature = "version_lite"
-        ),
-        test_case("1.2.3")
-    )]
-    #[cfg_attr(
-        all(
-            any(
-                all(not(feature = "semver"), feature = "semver10"),
-                all(feature = "semver", not(feature = "semver10"))
-            ),
-            feature = "version_lite"
-        ),
-        test_case("1.2.3-alpha01")
-    )]
-    #[cfg_attr(
-        all(
-            any(
-                all(not(feature = "semver"), feature = "semver10"),
-                all(feature = "semver", not(feature = "semver10"))
-            ),
-            feature = "version_lite"
-        ),
-        test_case("1.2.3+build02")
-    )]
-    #[cfg_attr(
-        all(
-            any(
-                all(not(feature = "semver"), feature = "semver10"),
-                all(feature = "semver", not(feature = "semver10"))
-            ),
-            feature = "version_lite"
-        ),
-        test_case("1.2.3-beta03+r4")
-    )]
-    #[cfg(all(
-        any(
-            all(not(feature = "semver"), feature = "semver10"),
-            all(feature = "semver", not(feature = "semver10"))
-        ),
-        feature = "version_lite"
-    ))]
-    fn test_semver_and_lite(v: &str) {
-        let sem = parse::<SemVer>(v).unwrap();
-        let lite = parse::<VersionLite<'_>>(v).unwrap();
-        let sem_from_lite = SemVer::from(lite);
-        assert_eq!(sem, sem_from_lite);
+    #[test_case("1.2.3" => parse::<Version>("1.2.3.Final"); "dot final")]
+    #[test_case("1.2.3" => parse::<Version>("1.2.3.Release"); "dot release")]
+    #[test_case("1.2.3" => parse::<Version>("1.2.3-Final"); "hyphen final")]
+    #[test_case("1.2.3" => parse::<Version>("1.2.3-Release"); "hyphen release")]
+    #[test_case("1.2.3" => parse::<Version>("1.2.3+Final"); "plus final")]
+    #[test_case("1.2.3" => parse::<Version>("1.2.3+Release"); "plus release")]
+    fn test_release_cmp(v: &str) -> Result<Version, Error<'_>> {
+        parse::<Version>(v)
     }
 }

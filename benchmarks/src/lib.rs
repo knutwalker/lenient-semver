@@ -1,5 +1,6 @@
-use lenient_semver::{parse, VersionLite};
+use lenient_semver::parse;
 use lenient_semver_02::{parse as parse_02, VersionLite as VersionLite02};
+use lenient_version::Version as VersionLite;
 use regex::Regex;
 use semver::{Identifier, Version};
 use semver10::Version as Version10;
@@ -15,7 +16,7 @@ pub fn lenient_semver(input: &str) -> Version {
 }
 
 #[inline(always)]
-pub fn lenient_lite(input: &str) -> VersionLite {
+pub fn lenient_version(input: &str) -> VersionLite {
     parse::<VersionLite>(input).unwrap()
 }
 
@@ -103,7 +104,6 @@ pub fn regex_parser(re: &Regex, input: &str) -> Option<Version> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lenient_semver::IdentifierLite;
     use lenient_semver_02::IdentifierLite as IdentifierLite02;
     use semver10::Identifier as Identifier10;
     use test_case::test_case;
@@ -117,9 +117,7 @@ mod tests {
     }
 
     fn expected_s_lite() -> VersionLite<'static> {
-        let mut v = VersionLite::default();
-        v.major = 1;
-        v
+        VersionLite::new(1, 0, 0)
     }
 
     fn expected_s_lite_02() -> VersionLite02<'static> {
@@ -175,17 +173,9 @@ mod tests {
             major: 1,
             minor: 2,
             patch: 3,
-            pre: vec![
-                IdentifierLite::Numeric(1),
-                IdentifierLite::AlphaNumeric("alpha1"),
-                IdentifierLite::Numeric(9),
-            ],
-            build: vec![
-                IdentifierLite::AlphaNumeric("build5"),
-                IdentifierLite::Numeric(7),
-                IdentifierLite::AlphaNumeric("3aedf"),
-                IdentifierLite::AlphaNumeric("01337"),
-            ],
+            additional: Vec::new(),
+            pre: vec!["1", "alpha1", "9"],
+            build: vec!["build5", "7", "3aedf", "01337"],
         }
     }
 
@@ -221,7 +211,7 @@ mod tests {
     #[test_case(INPUT_S => expected_s_lite())]
     #[test_case(INPUT_XL => expected_xl_lite())]
     fn test_lenient_lite(input: &str) -> VersionLite {
-        lenient_lite(input)
+        lenient_version(input)
     }
 
     #[test_case(INPUT_S => expected_s_10())]

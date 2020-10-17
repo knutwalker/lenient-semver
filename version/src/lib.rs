@@ -810,6 +810,12 @@ mod tests {
         assert_eq!(format!("{:.7}", version), "1.2.3.4");
     }
 
+    #[test]
+    fn test_parses_additional() {
+        let version = Version::parse("1.2.3.4.5-alpha1.drop02").unwrap();
+        assert_eq!(vec![4, 5], version.additional)
+    }
+
     #[test_case("1")]
     #[test_case("1.2")]
     #[test_case("1.2.3")]
