@@ -789,6 +789,18 @@ impl std::error::Error for Error<'_> {}
 
 impl std::error::Error for OwnedError {}
 
+impl PartialOrd for Error<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.error.partial_cmp(&other.error)
+    }
+}
+
+impl Ord for Error<'_> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.error.cmp(&other.error)
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 struct ErrorSpan {
     error: ErrorType,
@@ -829,7 +841,7 @@ impl ErrorSpan {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum ErrorType {
     Missing(Segment),
     NotANumber(Part),
