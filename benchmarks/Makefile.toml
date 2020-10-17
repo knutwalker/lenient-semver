@@ -1,0 +1,2 @@
+[tasks.outdated]
+args = ["outdated", "--root-deps-only", "--exit-code", "0"]

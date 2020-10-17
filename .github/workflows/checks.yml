@@ -19,62 +19,19 @@ jobs:
         rust: [stable, beta, nightly]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v2
-        name: Checkout code
-      - uses: actions-rs/toolchain@v1
-        name: Setup Rust
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
         with:
           profile: minimal
           toolchain: ${{ matrix.rust }}
           components: rustfmt, clippy
           override: true
-      - uses: actions-rs/cargo@v1
-        name: Test with no features
+      - name: Install cargo-make
+        uses: davidB/rust-cargo-make@v1
+      - name: Run CI
+        uses: actions-rs/cargo@v1
         with:
-          command: test
-          args: --no-default-features --lib --verbose
-      - uses: actions-rs/cargo@v1
-        name: Test with default features
-        with:
-          command: test
-          args: --verbose
-      - uses: actions-rs/cargo@v1
-        name: Test with version_lite feature
-        with:
-          command: test
-          args: --features=version_lite --lib --verbose
-      - uses: actions-rs/cargo@v1
-        name: Test with version_lite and semver10 features
-        with:
-          command: test
-          args: --features=version_lite,semver10 --lib --verbose
-      - uses: actions-rs/cargo@v1
-        name: Test Benchmarks
-        with:
-          command: test
-          args: --package benchmarks --lib --verbose
-      - uses: actions-rs/cargo@v1
-        name: Test with just version_lite feature
-        with:
-          command: test
-          args: --no-default-features --features=version_lite --lib --verbose
-      - uses: actions-rs/cargo@v1
-        name: Test with just semver10 feature
-        with:
-          command: test
-          args: --no-default-features --features=semver10 --lib --verbose
-      - uses: actions-rs/cargo@v1
-        name: Test with just version_lite and semver10 feature
-        with:
-          command: test
-          args: --no-default-features --features=version_lite,semver10 --lib --verbose
-      - uses: actions-rs/cargo@v1
-        name: Check code formatting
-        with:
-          command: fmt
-          args: --all -- --check
-      - uses: actions-rs/clippy-check@v1
-        name: Check clippy lints
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          args: --all-features --all-targets
+          command: make
+          args: ci-flow

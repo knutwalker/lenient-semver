@@ -1,14 +1,15 @@
+[tasks.outdated]
+args = ["outdated", "--root-deps-only", "--exit-code", "0"]
+
 [tasks.bench]
 workspace = false
 command = "cargo"
 args = ["bench", "--package", "benchmark_runner"]
 
-
 [tasks.bench-clean-results]
 workspace = false
 command = "rm"
 args = ["-r", "benchmark_runner/target/criterion"]
-
 
 [tasks.readme]
 workspace = false
