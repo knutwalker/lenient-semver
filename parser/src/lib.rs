@@ -710,7 +710,7 @@ where
                 // skip initial whitespace
                 Token::Whitespace => {}
                 _ => {
-                    version.set_major(parse_number(token_span, input, Part::Major)?);
+                    version.set_major(parse_number_or_vnumber(token_span, input)?);
                     token_span = match tokens.next() {
                         None => return finish(version),
                         Some(token_span) => token_span,
@@ -724,7 +724,7 @@ where
                 }
             },
             State::Part(part) => match token_span.token {
-                Token::Alpha => {
+                Token::Alpha | Token::VNumeric => {
                     let v = token_span.span.at(input);
                     // things like 1.Final, early stop with a single build identifier
                     if is_release_identifier(v) {
@@ -807,7 +807,7 @@ where
                         version.add_pre_release(v);
                     }
                     // numbers in pre-release are alphanum
-                    Token::Numeric => {
+                    Token::Numeric | Token::VNumeric => {
                         version.add_pre_release(token_span.span.at(input));
                     }
                     // unexpected end
@@ -833,10 +833,8 @@ where
                 loop {
                     let v = token_span.span.at(input);
                     match token_span.token {
-                        // regular build part
-                        Token::Alpha => version.add_build(v),
-                        // numbers in build are alphanum
-                        Token::Numeric => version.add_build(v),
+                        // alpha, numeric and vnums are all alphanum build parts
+                        Token::Alpha | Token::Numeric | Token::VNumeric => version.add_build(v),
                         // unexpected end
                         Token::Whitespace => {
                             return Err(ErrorSpan::missing_build(token_span.span));
@@ -880,18 +878,23 @@ where
 }
 
 #[inline]
+fn parse_number_or_vnumber(token: TokenSpan, input: &str) -> Result<u64, ErrorSpan> {
+    parse_number_or_vnumber_inner(token, input).map_err(|e| ErrorSpan::new(e, token.span))
+}
+
+#[inline]
 fn parse_number(token: TokenSpan, input: &str, part: Part) -> Result<u64, ErrorSpan> {
     parse_number_inner(token, input, part).map_err(|e| ErrorSpan::new(e, token.span))
 }
 
 #[inline]
+fn parse_number_or_vnumber_inner(token: TokenSpan, input: &str) -> Result<u64, ErrorType> {
+    try_as_number_or_vnumber(token, input).ok_or_else(|| ErrorType::NotANumber(Part::Major))
+}
+
+#[inline]
 fn parse_number_inner(token: TokenSpan, input: &str, part: Part) -> Result<u64, ErrorType> {
-    if part == Part::Major {
-        try_as_number_or_vnumber(token, input)
-    } else {
-        try_as_number(token.token, token.span.at(input))
-    }
-    .ok_or_else(|| ErrorType::NotANumber(part))
+    try_as_number(token.token, token.span.at(input)).ok_or_else(|| ErrorType::NotANumber(part))
 }
 
 #[inline]
@@ -1352,6 +1355,25 @@ mod tests {
         parse::<Version>(input)
     }
 
+    #[test_case("1.v2" => Ok(vers!(1 . 0 . 0 - "v2")))]
+    #[test_case("1-v3" => Ok(vers!(1 . 0 . 0 - "v3")))]
+    #[test_case("1+v4" => Ok(vers!(1 . 0 . 0 + "v4")))]
+    #[test_case("1.2.v3" => Ok(vers!(1 . 2 . 0 - "v3")))]
+    #[test_case("1.2-v4" => Ok(vers!(1 . 2 . 0 - "v4")))]
+    #[test_case("1.2+v5" => Ok(vers!(1 . 2 . 0 + "v5")))]
+    #[test_case("1.2.3.v4" => Ok(vers!(1 . 2 . 3 - "v4")))]
+    #[test_case("1.2.3-v5" => Ok(vers!(1 . 2 . 3 - "v5")))]
+    #[test_case("1.2.3+v6" => Ok(vers!(1 . 2 . 3 + "v6")))]
+    #[test_case("1.2.3-alpha.v4" => Ok(vers!(1 . 2 . 3 - "alpha" - "v4")))]
+    #[test_case("1.2.3-alpha-v5" => Ok(vers!(1 . 2 . 3 - "alpha" - "v5")))]
+    #[test_case("1.2.3-alpha+v6" => Ok(vers!(1 . 2 . 3 - "alpha" + "v6")))]
+    #[test_case("1.2.3+build.v4" => Ok(vers!(1 . 2 . 3 + "build" - "v4")))]
+    #[test_case("1.2.3+build-v5" => Ok(vers!(1 . 2 . 3 + "build" - "v5")))]
+    #[test_case("1.2.3-alpha.v6+build.v7" => Ok(vers!(1 . 2 . 3 - "alpha" - "v6" + "build" - "v7")))]
+    fn test_v_num_in_the_middle(input: &str) -> Result<Version, Error<'_>> {
+        parse::<Version>(input)
+    }
+
     #[test_case("" => Err(ErrorSpan::new(ErrorType::Missing(Segment::Part(Part::Major)), Span::new(0, 0))))]
     #[test_case("  " => Err(ErrorSpan::new(ErrorType::Missing(Segment::Part(Part::Major)), Span::new(0, 2))))]
     #[test_case("1. " => Err(ErrorSpan::new(ErrorType::Missing(Segment::Part(Part::Minor)), Span::new(2, 3))))]
@@ -1558,7 +1580,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_version_number_numeric() {
+    fn test_parse_number_numeric() {
         assert_eq!(
             parse_number(TokenSpan::new(Token::Numeric, 0, 2), "42", Part::Major),
             Ok(42)
@@ -1566,7 +1588,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_version_number_zero_numeric() {
+    fn test_parse_number_zero_numeric() {
         assert_eq!(
             parse_number(TokenSpan::new(Token::Numeric, 0, 3), "042", Part::Major),
             Ok(42)
@@ -1574,9 +1596,36 @@ mod tests {
     }
 
     #[test]
-    fn parse_version_number_v_numeric() {
+    fn test_parse_number_v_numeric() {
         assert_eq!(
             parse_number(TokenSpan::new(Token::VNumeric, 0, 3), "v42", Part::Major),
+            Err(ErrorSpan::new(
+                ErrorType::NotANumber(Part::Major),
+                Span::new(0, 3)
+            ))
+        )
+    }
+
+    #[test]
+    fn test_parse_number_or_vnumber_numeric() {
+        assert_eq!(
+            parse_number_or_vnumber(TokenSpan::new(Token::Numeric, 0, 2), "42"),
+            Ok(42)
+        )
+    }
+
+    #[test]
+    fn test_parse_number_or_vnumber_zero_numeric() {
+        assert_eq!(
+            parse_number_or_vnumber(TokenSpan::new(Token::Numeric, 0, 3), "042"),
+            Ok(42)
+        )
+    }
+
+    #[test]
+    fn test_parse_number_or_vnumber_v_numeric() {
+        assert_eq!(
+            parse_number_or_vnumber(TokenSpan::new(Token::VNumeric, 0, 3), "v42"),
             Ok(42)
         )
     }
