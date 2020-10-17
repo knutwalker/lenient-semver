@@ -1,5 +1,5 @@
-use lenient_semver::parse;
 use lenient_semver_02::{parse as parse_02, VersionLite as VersionLite02};
+use lenient_semver_parser::parse;
 use lenient_version::Version as VersionLite;
 use regex::Regex;
 use semver::{Identifier, Version};

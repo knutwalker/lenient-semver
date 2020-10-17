@@ -24,36 +24,36 @@ This diagram shows lenient parsing grammar
 ```rust
 use semver::Version;
 
-let version = lenient_semver::parse::<Version>("1.2.3");
+let version = lenient_semver::parse("1.2.3");
 assert_eq!(version, Ok(Version::new(1, 2, 3)));
 
 // examples of a version that would not be accepted by semver_parser
 assert_eq!(
-    lenient_semver::parse::<Version>("1.2.M1").unwrap(),
+    lenient_semver::parse("1.2.M1").unwrap(),
     Version::parse("1.2.0-M1").unwrap()
 );
 assert!(Version::parse("1.2.M1").is_err());
 
 assert_eq!(
-    lenient_semver::parse::<Version>("1").unwrap(),
+    lenient_semver::parse("1").unwrap(),
     Version::parse("1.0.0").unwrap()
 );
 assert!(Version::parse("1").is_err());
 
 assert_eq!(
-    lenient_semver::parse::<Version>("1.2.3.Final").unwrap(),
+    lenient_semver::parse("1.2.3.Final").unwrap(),
     Version::parse("1.2.3+Final").unwrap()
 );
 assert!(Version::parse("1.2.3.Final").is_err());
 
 assert_eq!(
-    lenient_semver::parse::<Version>("1.2.3.4.5").unwrap(),
+    lenient_semver::parse("1.2.3.4.5").unwrap(),
     Version::parse("1.2.3+4.5").unwrap()
 );
 assert!(Version::parse("1.2.3.4.5").is_err());
 
 assert_eq!(
-    lenient_semver::parse::<Version>("v1.2.3").unwrap(),
+    lenient_semver::parse("v1.2.3").unwrap(),
     Version::parse("1.2.3").unwrap()
 );
 assert!(Version::parse("v1.2.3").is_err());

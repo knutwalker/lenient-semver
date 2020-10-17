@@ -1,6 +1,6 @@
 //! Lenient semantic version.
 //!
-//! Companion version struct for the lenient_semver parser.
+//! Companion version struct for the lenient_semver_parser parser.
 //! Compared to [`semver::Version`], this version:
 //!  - Supports additional numeric identifiers (e.g. 1.2.3.4.5)
 //!  - Does not allocate Strings for metadata (it still allocated vectors)
@@ -104,7 +104,7 @@ impl<'input> Version<'input> {
     /// Parse a string slice into a Version.
     ///
     /// This parser does not require semver-specification conformant input and is more lenient in what it allows.
-    /// For more information, see [`lenient_semver`].
+    /// For more information, see [`lenient_semver_parser`].
     ///
     ///
     /// ## Examples
@@ -116,8 +116,8 @@ impl<'input> Version<'input> {
     /// assert!(version.is_ok());
     /// ```
     #[cfg(feature = "parser")]
-    pub fn parse(input: &'input str) -> Result<Self, lenient_semver::Error<'input>> {
-        lenient_semver::parse::<Self>(input)
+    pub fn parse(input: &'input str) -> Result<Self, lenient_semver_parser::Error<'input>> {
+        lenient_semver_parser::parse::<Self>(input)
     }
 
     /// Bumps the major version.
@@ -381,7 +381,7 @@ impl<'input> From<[u64; 3]> for Version<'input> {
 
 #[cfg(feature = "parser")]
 impl<'input> TryFrom<&'input str> for Version<'input> {
-    type Error = lenient_semver::Error<'input>;
+    type Error = lenient_semver_parser::Error<'input>;
 
     fn try_from(value: &'input str) -> Result<Self, Self::Error> {
         Self::parse(value)
@@ -527,7 +527,7 @@ impl hash::Hash for Version<'_> {
 }
 
 #[cfg(feature = "parser")]
-impl<'input> lenient_semver::VersionBuilder<'input> for Version<'input> {
+impl<'input> lenient_semver_parser::VersionBuilder<'input> for Version<'input> {
     type Out = Self;
 
     fn new() -> Self {

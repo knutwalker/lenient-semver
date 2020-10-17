@@ -1,30 +1,30 @@
 [workspace]
-members = [ "benchmarks", "benchmark_runner", "version" ]
+members = [ "benchmarks", "benchmark_runner", "parser", "version" ]
 
 [package]
 name = "lenient_semver"
 version = "0.2.1-alpha.0"
-description = "Lenient parser for Semantic Version numbers."
+description = "Lenient Semantic Version numbers."
 authors = ["Paul Horn <developer@knutwalker.de>"]
 edition = "2018"
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/knutwalker/lenient-semver/"
 repository = "https://github.com/knutwalker/lenient-semver/"
-categories = ["parser-implementations"]
+categories = ["development-tools", "parser-implementations"]
 keywords = ["lenient", "parser", "semver", "semantic", "version"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-semver = { version = "0.11.0", optional = true }
-semver10 = { version = "0.10.0", optional = true, package = "semver" }
+lenient_semver_parser = { path = "parser", default-features = false }
+lenient_version = { path = "version", default-features = false, optional = true }
+semver011 = { version = "0.11.0", optional = true, package = "semver" }
+semver010 = { version = "0.10.0", optional = true, package = "semver" }
 
 [features]
-default = ["semver"]
-
-[dev-dependencies]
-semver = "0.11.0"
-test-case = "1.0.0"
+default = [ "semver" ]
+semver = [ "semver011", "lenient_semver_parser/semver" ]
+semver10 = [ "semver010", "lenient_semver_parser/semver10" ]
+version_lite = [ "lenient_version", "lenient_version/parser" ]
+serde = [ "version_lite", "lenient_version/serde" ]
 
 [package.metadata.docs.rs]
-features = ["semver"]
+features = [ "semver", "semver10", "serde", "version_lite" ]
