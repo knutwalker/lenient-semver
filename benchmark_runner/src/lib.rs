@@ -1,4 +1,5 @@
 use criterion::{black_box, BenchmarkId, Criterion};
+use std::time::Duration;
 
 macro_rules! run_group {
     ($crit:ident, $group:literal, $($name:literal -> $fun:expr),+,) => {{
@@ -15,7 +16,7 @@ macro_rules! run_group {
     }};
 }
 
-pub fn parser_benchmarks(c: &mut Criterion) {
+fn parser_benchmarks(c: &mut Criterion) {
     run_group!(c, "semver11",
         "semver" -> ::benchmarks::semver,
         "lenient" -> ::benchmarks::lenient_semver,
@@ -49,4 +50,34 @@ pub fn parser_benchmarks(c: &mut Criterion) {
         });
     }
     group.finish();
+}
+
+fn crate_benchmarks(c: &mut Criterion) {
+    run_group!(c, "crate",
+        "lite" -> ::benchmarks::lenient_version,
+        "semver" -> ::benchmarks::lenient_semver,
+    );
+}
+
+fn criterion(crate_only: bool) -> Criterion {
+    let mut criterion = Criterion::default().with_plots();
+    if crate_only {
+        criterion = criterion
+            .sample_size(1_000)
+            .confidence_level(0.98)
+            .warm_up_time(Duration::from_secs(10))
+            .measurement_time(Duration::from_secs(20))
+    };
+    criterion.configure_from_args()
+}
+
+pub fn main() {
+    let crate_only = std::env::args().any(|a| &*a == "crate");
+    let mut criterion = criterion(crate_only);
+    if crate_only {
+        crate_benchmarks(&mut criterion)
+    } else {
+        parser_benchmarks(&mut criterion);
+    }
+    criterion.final_summary();
 }
