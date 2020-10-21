@@ -55,7 +55,6 @@ fn parser_benchmarks(c: &mut Criterion) {
 fn crate_benchmarks(c: &mut Criterion) {
     run_group!(c, "crate",
         "lite" -> ::benchmarks::lenient_version,
-        "semver" -> ::benchmarks::lenient_semver,
     );
 }
 
