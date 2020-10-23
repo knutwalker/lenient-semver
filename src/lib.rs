@@ -19,7 +19,7 @@ The differenc include:
 
 This diagram shows lenient parsing grammar
 
-![have a look at doc/railroad.svg](https://ssl.webpack.de/ghcdn.knutwalker.de/lenient-semver/doc/railroad.svg)
+![have a look at doc/railroad.svg](https://knutwalker.s3.eu-central-1.amazonaws.com/lenient-semver/doc/railroad.svg)
 
 ## Examples
 
@@ -399,7 +399,7 @@ pub use lenient_version::{Version, Version as VersionLite};
 ///
 /// This diagram shows lenient parsing grammar
 ///
-/// ![have a look at doc/railroad.svg](https://ssl.webpack.de/ghcdn.knutwalker.de/lenient-semver/doc/railroad.svg)
+/// ![have a look at doc/railroad.svg](https://knutwalker.s3.eu-central-1.amazonaws.com/lenient-semver/doc/railroad.svg)
 ///
 /// ## Examples
 ///
@@ -468,7 +468,7 @@ pub fn parse<'input>(input: &'input str) -> Result<semver::Version, parser::Erro
 ///
 /// This diagram shows lenient parsing grammar
 ///
-/// ![have a look at doc/railroad.svg](https://ssl.webpack.de/ghcdn.knutwalker.de/lenient-semver/doc/railroad.svg)
+/// ![have a look at doc/railroad.svg](https://knutwalker.s3.eu-central-1.amazonaws.com/lenient-semver/doc/railroad.svg)
 ///
 /// This method can parse anything that implements [`VersionBuilder`].
 ///

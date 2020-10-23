@@ -18,7 +18,7 @@ The differenc include:
 
 This diagram shows lenient parsing grammar
 
-![have a look at doc/railroad.svg](https://ssl.webpack.de/ghcdn.knutwalker.de/lenient-semver/doc/railroad.svg)
+![have a look at doc/railroad.svg](https://knutwalker.s3.eu-central-1.amazonaws.com/lenient-semver/doc/railroad.svg)
 
 ### Examples
 
