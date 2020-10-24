@@ -96,7 +96,42 @@ pub fn parse<'input, V>(input: &'input str) -> Result<V::Out, Error<'input>>
 where
     V: VersionBuilder<'input>,
 {
-    parse_internal::<V>(input).map_err(|ErrorSpan { error, span }| Error { input, span, error })
+    let actions: [for<'local> fn(
+        &'input str,
+        &'local mut V,
+        &'local mut usize,
+        &'local mut State,
+        usize,
+    ) -> Result<(), Error<'input>>; EMITS] = [
+        do_nothing,
+        save_start,
+        parse_major,
+        parse_minor,
+        parse_patch,
+        parse_add,
+        parse_pre_release,
+        parse_build,
+        error_missing_major,
+        error_missing_minor,
+        error_missing_patch,
+        error_missing_pre,
+        error_missing_build,
+        error_unexpected,
+    ];
+    let mut start = 0_usize;
+    let mut v = V::new();
+    let mut state = State::ExpectMajor;
+
+    let mut_v = &mut v;
+    let mut_s = &mut start;
+    for (index, b) in input.bytes().enumerate() {
+        let (mut new_state, emits) = transduce(&LOOKUP, &DFA, state, b);
+        (actions[emits as u8 as usize])(input, mut_v, mut_s, &mut new_state, index)?;
+        state = new_state;
+    }
+    let (mut new_state, emits) = transition(&DFA, state, Class::EndOfInput);
+    (actions[emits as u8 as usize])(input, mut_v, mut_s, &mut new_state, input.len())?;
+    Ok(v.build())
 }
 
 /// Trait to abstract over version building.
@@ -483,6 +518,11 @@ impl<'input> Error<'input> {
             width = (self.span.end - self.span.start) as usize
         )
     }
+
+    fn new(input: &'input str, error: ErrorType, start: usize, end: usize) -> Self {
+        let span = Span::new(start as u8, end as u8);
+        Error { input, error, span }
+    }
 }
 
 /// Owned version of [`Error`] which clones the input string.
@@ -602,6 +642,7 @@ struct ErrorSpan {
 }
 
 impl ErrorSpan {
+    #[cfg(test)]
     fn new(error: ErrorType, span: Span) -> Self {
         Self { error, span }
     }
@@ -1008,7 +1049,7 @@ fn do_nothing<'input, V>(
     _start: &mut usize,
     _new_state: &mut State,
     _index: usize,
-) -> Result<(), ErrorSpan>
+) -> Result<(), Error<'input>>
 where
     V: VersionBuilder<'input>,
 {
@@ -1021,7 +1062,7 @@ fn save_start<'input, V>(
     start: &mut usize,
     _new_state: &mut State,
     index: usize,
-) -> Result<(), ErrorSpan>
+) -> Result<(), Error<'input>>
 where
     V: VersionBuilder<'input>,
 {
@@ -1035,7 +1076,7 @@ fn parse_major<'input, V>(
     start: &mut usize,
     _new_state: &mut State,
     index: usize,
-) -> Result<(), ErrorSpan>
+) -> Result<(), Error<'input>>
 where
     V: VersionBuilder<'input>,
 {
@@ -1044,10 +1085,7 @@ where
             v.set_major(num);
             Ok(())
         }
-        _ => Err(ErrorSpan::new(
-            ErrorType::MajorNotNumeric,
-            Span::new(*start as u8, index as u8),
-        )),
+        _ => Err(Error::new(input, ErrorType::MajorNotNumeric, *start, index)),
     }
 }
 
@@ -1057,7 +1095,7 @@ fn parse_minor<'input, V>(
     start: &mut usize,
     new_state: &mut State,
     index: usize,
-) -> Result<(), ErrorSpan>
+) -> Result<(), Error<'input>>
 where
     V: VersionBuilder<'input>,
 {
@@ -1080,7 +1118,7 @@ fn parse_patch<'input, V>(
     start: &mut usize,
     new_state: &mut State,
     index: usize,
-) -> Result<(), ErrorSpan>
+) -> Result<(), Error<'input>>
 where
     V: VersionBuilder<'input>,
 {
@@ -1103,7 +1141,7 @@ fn parse_add<'input, V>(
     start: &mut usize,
     new_state: &mut State,
     index: usize,
-) -> Result<(), ErrorSpan>
+) -> Result<(), Error<'input>>
 where
     V: VersionBuilder<'input>,
 {
@@ -1126,7 +1164,7 @@ fn parse_pre_release<'input, V>(
     start: &mut usize,
     new_state: &mut State,
     index: usize,
-) -> Result<(), ErrorSpan>
+) -> Result<(), Error<'input>>
 where
     V: VersionBuilder<'input>,
 {
@@ -1149,7 +1187,7 @@ fn parse_build<'input, V>(
     start: &mut usize,
     _new_state: &mut State,
     index: usize,
-) -> Result<(), ErrorSpan>
+) -> Result<(), Error<'input>>
 where
     V: VersionBuilder<'input>,
 {
@@ -1163,7 +1201,7 @@ fn error_missing_major<'input, V>(
     _start: &mut usize,
     _new_state: &mut State,
     index: usize,
-) -> Result<(), ErrorSpan>
+) -> Result<(), Error<'input>>
 where
     V: VersionBuilder<'input>,
 {
@@ -1176,7 +1214,7 @@ fn error_missing_minor<'input, V>(
     _start: &mut usize,
     _new_state: &mut State,
     index: usize,
-) -> Result<(), ErrorSpan>
+) -> Result<(), Error<'input>>
 where
     V: VersionBuilder<'input>,
 {
@@ -1189,7 +1227,7 @@ fn error_missing_patch<'input, V>(
     _start: &mut usize,
     _new_state: &mut State,
     index: usize,
-) -> Result<(), ErrorSpan>
+) -> Result<(), Error<'input>>
 where
     V: VersionBuilder<'input>,
 {
@@ -1202,7 +1240,7 @@ fn error_missing_pre<'input, V>(
     _start: &mut usize,
     _new_state: &mut State,
     index: usize,
-) -> Result<(), ErrorSpan>
+) -> Result<(), Error<'input>>
 where
     V: VersionBuilder<'input>,
 {
@@ -1215,20 +1253,24 @@ fn error_missing_build<'input, V>(
     _start: &mut usize,
     _new_state: &mut State,
     index: usize,
-) -> Result<(), ErrorSpan>
+) -> Result<(), Error<'input>>
 where
     V: VersionBuilder<'input>,
 {
     error_missing(Segment::Build, input, index)
 }
 
-fn error_missing(segment: Segment, input: &str, index: usize) -> Result<(), ErrorSpan> {
+fn error_missing(segment: Segment, input: &str, index: usize) -> Result<(), Error<'_>> {
     let span = if index < input.len() {
         span_from(input, index)
     } else {
         Span::new(index as u8, index as u8)
     };
-    Err(ErrorSpan::new(ErrorType::Missing(segment), span))
+    Err(Error {
+        input,
+        error: ErrorType::Missing(segment),
+        span,
+    })
 }
 
 fn error_unexpected<'input, V>(
@@ -1237,14 +1279,15 @@ fn error_unexpected<'input, V>(
     _start: &mut usize,
     _new_state: &mut State,
     index: usize,
-) -> Result<(), ErrorSpan>
+) -> Result<(), Error<'input>>
 where
     V: VersionBuilder<'input>,
 {
-    Err(ErrorSpan::new(
-        ErrorType::Unexpected,
-        span_from(input, index),
-    ))
+    Err(Error {
+        input,
+        error: ErrorType::Unexpected,
+        span: span_from(input, index),
+    })
 }
 
 #[inline]
@@ -1253,48 +1296,6 @@ fn span_from(input: &str, index: usize) -> Span {
         index as u8,
         (index + utf8_len(input.as_bytes()[index])) as u8,
     )
-}
-
-fn parse_internal<'input, V>(input: &'input str) -> Result<V::Out, ErrorSpan>
-where
-    V: VersionBuilder<'input>,
-{
-    let actions: [for<'local> fn(
-        &'input str,
-        &'local mut V,
-        &'local mut usize,
-        &'local mut State,
-        usize,
-    ) -> Result<(), ErrorSpan>; EMITS] = [
-        do_nothing,
-        save_start,
-        parse_major,
-        parse_minor,
-        parse_patch,
-        parse_add,
-        parse_pre_release,
-        parse_build,
-        error_missing_major,
-        error_missing_minor,
-        error_missing_patch,
-        error_missing_pre,
-        error_missing_build,
-        error_unexpected,
-    ];
-    let mut start = 0_usize;
-    let mut v = V::new();
-    let mut state = State::ExpectMajor;
-
-    let mut_v = &mut v;
-    let mut_s = &mut start;
-    for (index, b) in input.bytes().enumerate() {
-        let (mut new_state, emits) = transduce(&LOOKUP, &DFA, state, b);
-        (actions[emits as u8 as usize])(input, mut_v, mut_s, &mut new_state, index)?;
-        state = new_state;
-    }
-    let (mut new_state, emits) = transition(&DFA, state, Class::EndOfInput);
-    (actions[emits as u8 as usize])(input, mut_v, mut_s, &mut new_state, input.len())?;
-    Ok(v.build())
 }
 
 /// for benchmarks
@@ -1808,7 +1809,7 @@ mod tests {
     #[test_case("1 abc" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(2, 3))); "a following parsed number 1")]
     #[test_case("1.2.3 abc" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 7))); "a following parsed number 1.2.3")]
     fn test_simple_errors(input: &str) -> Result<Version, ErrorSpan> {
-        parse_internal::<Version>(input)
+        parse::<Version>(input).map_err(|e| ErrorSpan::new(e.error, e.span))
     }
 
     #[test_case("" => r#"Could not parse the major identifier: No input
