@@ -420,7 +420,6 @@ impl<'input> Error<'input> {
             },
             ErrorType::MajorNotNumeric => ErrorKind::MajorNotANumber,
             ErrorType::Unexpected => ErrorKind::UnexpectedInput,
-            ErrorType::InputTooLarge => ErrorKind::InputTooLarge,
         }
     }
 
@@ -462,7 +461,6 @@ impl<'input> Error<'input> {
                 self.erroneous_input()
             ),
             ErrorType::Unexpected => format!("Unexpected `{}`", self.erroneous_input()),
-            ErrorType::InputTooLarge => format!("Input too large `{}`", self.erroneous_input()),
         }
     }
 
@@ -472,10 +470,10 @@ impl<'input> Error<'input> {
     ///
     /// ```rust
     /// let error = lenient_semver_parser::parse::<semver::Version>("foo").unwrap_err();
-    /// assert_eq!(error.indicate_erroneous_input(), "^^^");
+    /// assert_eq!(error.indicate_erroneous_input(), "^");
     ///
     /// let error = lenient_semver_parser::parse::<semver::Version>("1.2.3 bar").unwrap_err();
-    /// assert_eq!(error.indicate_erroneous_input(), "~~~~~^");
+    /// assert_eq!(error.indicate_erroneous_input(), "~~~~~~^");
     /// ```
     pub fn indicate_erroneous_input(&self) -> String {
         format!(
@@ -561,8 +559,6 @@ pub enum ErrorKind {
     MajorNotANumber,
     /// Found an unexpected input
     UnexpectedInput,
-    /// Found input that is too large
-    InputTooLarge,
 }
 
 impl Display for Error<'_> {
@@ -609,34 +605,6 @@ impl ErrorSpan {
     fn new(error: ErrorType, span: Span) -> Self {
         Self { error, span }
     }
-
-    fn missing_part(part: Part, span: Span) -> Self {
-        Self {
-            error: ErrorType::Missing(Segment::Part(part)),
-            span,
-        }
-    }
-
-    fn missing_pre(span: Span) -> Self {
-        Self {
-            error: ErrorType::Missing(Segment::PreRelease),
-            span,
-        }
-    }
-
-    fn missing_build(span: Span) -> Self {
-        Self {
-            error: ErrorType::Missing(Segment::Build),
-            span,
-        }
-    }
-
-    fn unexpected(span: Span) -> Self {
-        Self {
-            error: ErrorType::Unexpected,
-            span,
-        }
-    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -644,7 +612,6 @@ enum ErrorType {
     Missing(Segment),
     MajorNotNumeric,
     Unexpected,
-    InputTooLarge,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -681,261 +648,22 @@ impl Display for Segment {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
-enum State {
-    Part(Part),
-    Dot4,
-    PreRelease,
-    Build,
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+struct Span {
+    start: u8,
+    end: u8,
 }
 
-fn parse_internal<'input, V>(input: &'input str) -> Result<V::Out, ErrorSpan>
-where
-    V: VersionBuilder<'input>,
-{
-    let lexer = lex(input)?;
-    let lexer_start = lexer
-        .peeked
-        .map(|(start, _)| start)
-        .unwrap_or_else(|| input.len());
-    let start = Span::new(0, lexer_start as u8);
-    parse_internal_at::<_, V>(input, start, lexer)
-}
-
-fn parse_internal_at<'input, I, V>(
-    input: &'input str,
-    start_span: Span,
-    tokens: I,
-) -> Result<V::Out, ErrorSpan>
-where
-    I: IntoIterator<Item = TokenSpan>,
-    V: VersionBuilder<'input>,
-{
-    let mut tokens = tokens.into_iter();
-    let mut version = V::new();
-    let mut state = State::Part(Part::Major);
-
-    let mut token_span = match tokens.next() {
-        Some(token) => token,
-        None => return Err(ErrorSpan::missing_part(Part::Major, start_span)),
-    };
-
-    loop {
-        match state {
-            State::Part(Part::Major) => {
-                version.set_major(parse_number_or_vnumber(token_span, input)?);
-                token_span = match tokens.next() {
-                    None => return finish(version),
-                    Some(token_span) => token_span,
-                };
-                state = match token_span.token {
-                    Token::Dot => State::Part(Part::Minor),
-                    Token::Hyphen => State::PreRelease,
-                    Token::Plus => State::Build,
-                    _ => return Err(ErrorSpan::unexpected(token_span.span)),
-                };
-            }
-            State::Part(part) => match token_span.token {
-                Token::Alpha => {
-                    let v = token_span.span.at(input);
-                    // things like 1.Final, early stop with a single build identifier
-                    if is_release_identifier(v) {
-                        version.add_build(v);
-                        return finish_tokens(tokens, version);
-                    }
-                    // any alpha token skips right into pre-release parsing
-                    state = State::PreRelease;
-                    continue;
-                }
-                // any other token is tried as a number
-                _ => {
-                    let v = token_span.span.at(input);
-                    let num = match try_as_number(token_span.token, v) {
-                        Some(num) => num,
-                        None => {
-                            // numeric overflow, interpret as alpha token and skip right into pre-release parsing
-                            state = State::PreRelease;
-                            continue;
-                        }
-                    };
-                    match part {
-                        Part::Major => unreachable!(),
-                        Part::Minor => version.set_minor(num),
-                        Part::Patch => version.set_patch(num),
-                    }
-                    token_span = match tokens.next() {
-                        None => return finish(version),
-                        Some(token_span) => token_span,
-                    };
-                    state = match token_span.token {
-                        Token::Dot => match part {
-                            Part::Major => unreachable!(),
-                            Part::Minor => State::Part(Part::Patch),
-                            Part::Patch => State::Dot4,
-                        },
-                        Token::Hyphen => State::PreRelease,
-                        Token::Plus => State::Build,
-                        _ => return Err(ErrorSpan::unexpected(token_span.span)),
-                    };
-                }
-            },
-            State::Dot4 => {
-                let next_dot_state = match token_span.token {
-                    // leading zero numbers are still interpreted as numbers
-                    Token::Numeric => {
-                        let v = token_span.span.at(input);
-                        match try_as_number(token_span.token, v) {
-                            Some(num) => {
-                                version.add_additional(num);
-                                State::Dot4
-                            }
-                            None => {
-                                version.add_pre_release(v);
-                                State::PreRelease
-                            }
-                        }
-                    }
-                    // all other tokens directly jump into the pre-release parser
-                    _ => {
-                        state = State::PreRelease;
-                        continue;
-                    }
-                };
-                token_span = match tokens.next() {
-                    None => return finish(version),
-                    Some(token_span) => token_span,
-                };
-                state = match token_span.token {
-                    Token::Dot => next_dot_state,
-                    Token::Hyphen => State::PreRelease,
-                    Token::Plus => State::Build,
-                    _ => return Err(ErrorSpan::unexpected(token_span.span)),
-                };
-            }
-            State::PreRelease => {
-                match token_span.token {
-                    Token::Alpha => {
-                        let v = token_span.span.at(input);
-                        // things like 1.Final, early stop with a single build identifier
-                        if is_release_identifier(v) {
-                            version.add_build(v);
-                            return finish_tokens(tokens, version);
-                        }
-                        // regular pre-release part
-                        version.add_pre_release(v);
-                    }
-                    // numbers in pre-release are alphanum
-                    Token::Numeric => {
-                        version.add_pre_release(token_span.span.at(input));
-                    }
-                    // any other token is invalid
-                    _ => {
-                        return Err(ErrorSpan::unexpected(token_span.span));
-                    }
-                }
-                token_span = match tokens.next() {
-                    None => return finish(version),
-                    Some(token_span) => token_span,
-                };
-                state = match token_span.token {
-                    Token::Dot => State::PreRelease,
-                    Token::Hyphen => State::PreRelease,
-                    Token::Plus => State::Build,
-                    _ => return Err(ErrorSpan::unexpected(token_span.span)),
-                };
-            }
-            State::Build => {
-                // inline last state as we never change it
-                loop {
-                    let v = token_span.span.at(input);
-                    match token_span.token {
-                        // alpha and numeric are all alphanum build parts
-                        Token::Alpha | Token::Numeric => version.add_build(v),
-                        // any other token is invalid
-                        _ => {
-                            return Err(ErrorSpan::unexpected(token_span.span));
-                        }
-                    }
-
-                    token_span = match tokens.next() {
-                        None => return finish(version),
-                        Some(token_span) => token_span,
-                    };
-                    match token_span.token {
-                        Token::Dot | Token::Hyphen => {} // try next build token,
-                        _ => return Err(ErrorSpan::unexpected(token_span.span)),
-                    };
-                    token_span = match tokens.next() {
-                        Some(token) => token,
-                        None => return Err(ErrorSpan::missing_build(token_span.span)),
-                    };
-                }
-            }
-        }
-
-        token_span = match tokens.next() {
-            Some(token) => token,
-            None => {
-                let span = Span::new(
-                    token_span.span.end,
-                    input.len().min(u8::max_value() as usize) as u8,
-                );
-                return match state {
-                    State::Part(part) => Err(ErrorSpan::missing_part(part, span)),
-                    State::PreRelease | State::Dot4 => Err(ErrorSpan::missing_pre(span)),
-                    State::Build => Err(ErrorSpan::missing_build(span)),
-                };
-            }
-        };
+impl Span {
+    fn new(start: u8, end: u8) -> Self {
+        Self { start, end }
     }
 }
 
-#[inline]
-fn parse_number_or_vnumber(token: TokenSpan, input: &str) -> Result<u64, ErrorSpan> {
-    let input = match token.token {
-        Token::Numeric => token.span.at(input),
-        Token::Alpha => {
-            let input = token.span.at(input);
-            let (prefix, input) = input.split_at(1);
-            if prefix == "v" || prefix == "V" {
-                input
-            } else {
-                return Err(ErrorSpan::new(ErrorType::MajorNotNumeric, token.span));
-            }
-        }
-        _ => return Err(ErrorSpan::new(ErrorType::MajorNotNumeric, token.span)),
-    };
-    match input.parse::<u64>() {
-        Ok(num) => Ok(num),
-        _ => Err(ErrorSpan::new(ErrorType::MajorNotNumeric, token.span)),
+impl From<Span> for Range<usize> {
+    fn from(s: Span) -> Self {
+        s.start as usize..s.end as usize
     }
-}
-
-#[inline]
-fn try_as_number(token: Token, input: &str) -> Option<u64> {
-    match token {
-        Token::Numeric => input.parse::<u64>().ok(),
-        _ => None,
-    }
-}
-
-fn finish_tokens<'input, I, V>(mut tokens: I, value: V) -> Result<V::Out, ErrorSpan>
-where
-    I: Iterator<Item = TokenSpan>,
-    V: VersionBuilder<'input>,
-{
-    if let Some(token) = tokens.next() {
-        return Err(ErrorSpan::unexpected(token.span));
-    }
-    finish(value)
-}
-
-#[inline]
-fn finish<'input, V>(value: V) -> Result<V::Out, ErrorSpan>
-where
-    V: VersionBuilder<'input>,
-{
-    Ok(value.build())
 }
 
 fn is_release_identifier(v: &str) -> bool {
@@ -952,128 +680,6 @@ fn eq_bytes_ignore_case(left: &str, right: &str) -> bool {
         .all(|(c1, c2)| c1 == c2)
 }
 
-#[cfg(test)]
-fn parse_from_iter<'input, I, V>(input: &'input str, tokens: I) -> Result<V::Out, ErrorSpan>
-where
-    I: IntoIterator<Item = TokenSpan>,
-    V: VersionBuilder<'input>,
-{
-    parse_internal_at::<I, V>(input, Span::default(), tokens)
-}
-
-fn lex(input: &str) -> Result<Lexer<'_>, ErrorSpan> {
-    Lexer::new(input)
-}
-
-#[derive(Debug)]
-struct Lexer<'input> {
-    chars: std::str::CharIndices<'input>,
-    peeked: Option<(usize, char)>,
-    end: usize,
-}
-
-impl<'input> Lexer<'input> {
-    fn new(input: &'input str) -> Result<Self, ErrorSpan> {
-        if input.len() > u8::max_value() as usize {
-            return Err(ErrorSpan::new(
-                ErrorType::InputTooLarge,
-                Span::new(u8::max_value() - 1, u8::max_value()),
-            ));
-        }
-
-        let mut chars = input.char_indices();
-        let peeked = chars.find(|(_, c)| !c.is_ascii_whitespace());
-        Ok(Lexer {
-            chars,
-            peeked,
-            end: input.len(),
-        })
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-enum Token {
-    /// numeric component
-    Numeric,
-    /// alphanumeric component
-    Alpha,
-    /// `.`
-    Dot,
-    /// `+`
-    Plus,
-    /// `-`
-    Hyphen,
-    /// Error cases
-    UnexpectedChar,
-}
-
-impl<'input> Iterator for Lexer<'input> {
-    type Item = TokenSpan;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        // #[inline(always)]
-        // fn find_alpha_numeric(
-        //     (token, _): (Token, usize),
-        //     (pos, c): (usize, char),
-        // ) -> Result<(Token, usize), (Token, usize, char)> {
-        //     match c {
-        //         '0'..='9' => Ok((token, pos)),
-        //         'A'..='Z' | 'a'..='z' => Ok((Token::Alpha, pos)),
-        //         _ => Err((token, pos, c)),
-        //     }
-        // }
-
-        let (start, c) = self.peeked.take()?;
-        let (end, token) = match c {
-            '0'..='9' => match self.chars.find(|(_, c)| !c.is_ascii_digit()) {
-                Some((j, c)) => {
-                    if c.is_ascii_alphabetic() {
-                        match self.chars.find(|(_, c)| !c.is_ascii_alphanumeric()) {
-                            Some((j, c)) => {
-                                self.peeked = Some((j, c));
-                                (j, Token::Alpha)
-                            }
-                            None => (self.end, Token::Alpha),
-                        }
-                    } else {
-                        self.peeked = Some((j, c));
-                        (j, Token::Numeric)
-                    }
-                }
-                None => (self.end, Token::Numeric),
-            },
-            'A'..='Z' | 'a'..='z' => {
-                let end = match self.chars.find(|(_, c)| !c.is_ascii_alphanumeric()) {
-                    Some((j, c)) => {
-                        self.peeked = Some((j, c));
-                        j
-                    }
-                    None => self.end,
-                };
-                (end, Token::Alpha)
-            }
-            '.' => (start + 1, Token::Dot),
-            '-' => (start + 1, Token::Hyphen),
-            '+' => (start + 1, Token::Plus),
-            '\t' | '\n' | '\x0C' | '\r' | ' ' => {
-                if let Some(next) = self.chars.find(|(_, c)| !c.is_ascii_whitespace()) {
-                    self.peeked = Some(next);
-                    (start + 1, Token::UnexpectedChar)
-                } else {
-                    return None;
-                }
-            }
-            _ => (start + c.len_utf8(), Token::UnexpectedChar),
-        };
-
-        if self.peeked.is_none() {
-            self.peeked = self.chars.next();
-        }
-
-        Some(TokenSpan::new(token, start as u8, end as u8))
-    }
-}
-
 /// This constant maps the first 5 bits of a code unit to the one less than the length in utf-8.
 /// There are 32 possible values for the first 5 bits. The length in utf-8 is in [1, 4].
 /// Subtracting 1 gives us [0, 3], which can be encoded in 2 bits.
@@ -1085,48 +691,609 @@ impl<'input> Iterator for Lexer<'input> {
 /// 3. `MAGIC >> _`  selects the cooresponding length "entry"
 /// 4. `_ & 0b11`    retains only the last two bits
 /// 5. `_ + 1`       returns the actual length in [1, 4]
-///
-/// https://compiler-explorer.com/z/zvjPf7
 const MAGIC: u64 = 0x3A55000000000000;
-fn utf8_len(input: u8) -> usize {
+const fn utf8_len(input: u8) -> usize {
     ((MAGIC >> ((input >> 3) << 1)) & 0b11) as usize + 1
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-struct TokenSpan {
-    token: Token,
-    span: Span,
+const STATES: usize = 15;
+
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[repr(u8)]
+enum State {
+    ExpectMajor,
+    ParseMajor,
+    ExpectMinor,
+    ParseMinor,
+    ExpectPatch,
+    ParsePatch,
+    ExpectAdd,
+    ParseAdd,
+    ExpectPre,
+    ParsePre,
+    ExpectBuild,
+    ParseBuild,
+    RequireMajor,
+    EndOfInput,
+    Error,
 }
 
-impl TokenSpan {
-    fn new(token: Token, start: u8, end: u8) -> Self {
-        Self {
-            token,
-            span: Span::new(start, end),
+impl Display for State {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.pad(&format!("{:?}", self))
+    }
+}
+
+const CLASSES: usize = 9;
+
+#[derive(Debug, Copy, Clone)]
+#[repr(u8)]
+enum Class {
+    Number,
+    Alpha,
+    Dot,
+    Hyphen,
+    Plus,
+    V,
+    Whitespace,
+    EndOfInput,
+    Unexpected,
+}
+
+const EMITS: usize = 14;
+
+#[derive(Debug, Copy, Clone)]
+#[repr(u8)]
+enum Emit {
+    None,
+    SaveStart,
+    Major,
+    Minor,
+    Patch,
+    Add,
+    Pre,
+    Build,
+    ErrorMissingMajor,
+    ErrorMissingMinor,
+    ErrorMissingPatch,
+    ErrorMissingPre,
+    ErrorMissingBuild,
+    ErrorUnexpected,
+}
+
+type Lookup = [Class; 256];
+
+const fn class_lookup() -> Lookup {
+    let error_class = Class::Unexpected;
+    let mut table = [error_class; 256];
+    let mut c = 0_usize;
+    while c <= 0xFF {
+        let class = match c as u8 as char {
+            '.' => Class::Dot,
+            '-' => Class::Hyphen,
+            '+' => Class::Plus,
+            'v' | 'V' => Class::V,
+            '0'..='9' => Class::Number,
+            'A'..='Z' | 'a'..='z' => Class::Alpha,
+            '\t' | '\n' | '\x0C' | '\r' | ' ' => Class::Whitespace,
+            _ => Class::Unexpected,
+        };
+        table[c] = class;
+        c += 1;
+    }
+    table
+}
+
+#[inline(always)]
+const fn dfa_index(s: State, c: Class) -> u8 {
+    (s as u8) * (CLASSES as u8) + (c as u8)
+}
+
+macro_rules! dfa {
+        ($transitions:ident: $($cls:ident @ $state:ident -> $target:ident),+,) => {
+            $($transitions[dfa_index(State::$state, Class::$cls) as usize] = State::$target;)+
+        };
+
+        // ($transitions:ident: $($($cls:ident)|+ @ $state:ident -> $target:ident),+,) => {
+        //     $(
+        //         $(
+        //             $transitions[dfa_index(State::$state, Class::$cls) as usize] = State::$target;
+        //         )+
+        //     )+
+        // };
+    }
+
+macro_rules! emit {
+        ($emits:ident: $($($cls:ident)|+ @ $state:ident -> $emit:ident),+,) => {
+            $(
+                $(
+                    $emits[dfa_index(State::$state, Class::$cls) as usize] = Emit::$emit;
+                )+
+            )+
+        };
+    }
+
+type Dfa = ([State; STATES * CLASSES], [Emit; STATES * CLASSES]);
+
+const fn dfa() -> Dfa {
+    let mut transitions = [State::Error; STATES * CLASSES];
+    dfa!(transitions:
+
+    Whitespace @ ExpectMajor  -> ExpectMajor,
+             V @ ExpectMajor  -> RequireMajor,
+        Number @ ExpectMajor  -> ParseMajor,
+
+        Number @ RequireMajor -> ParseMajor,
+
+    EndOfInput @ ParseMajor   -> EndOfInput,
+    Whitespace @ ParseMajor   -> EndOfInput,
+        Number @ ParseMajor   -> ParseMajor,
+           Dot @ ParseMajor   -> ExpectMinor,
+        Hyphen @ ParseMajor   -> ExpectPre,
+          Plus @ ParseMajor   -> ExpectBuild,
+
+
+        Number @ ExpectMinor  -> ParseMinor,
+             V @ ExpectMinor  -> ParsePre,
+         Alpha @ ExpectMinor  -> ParsePre,
+
+    EndOfInput @ ParseMinor   -> EndOfInput,
+    Whitespace @ ParseMinor   -> EndOfInput,
+        Number @ ParseMinor   -> ParseMinor,
+             V @ ParseMinor   -> ParsePre,
+         Alpha @ ParseMinor   -> ParsePre,
+           Dot @ ParseMinor   -> ExpectPatch,
+        Hyphen @ ParseMinor   -> ExpectPre,
+          Plus @ ParseMinor   -> ExpectBuild,
+
+
+        Number @ ExpectPatch  -> ParsePatch,
+             V @ ExpectPatch  -> ParsePre,
+         Alpha @ ExpectPatch  -> ParsePre,
+
+    EndOfInput @ ParsePatch   -> EndOfInput,
+    Whitespace @ ParsePatch   -> EndOfInput,
+        Number @ ParsePatch   -> ParsePatch,
+             V @ ParsePatch   -> ParsePre,
+         Alpha @ ParsePatch   -> ParsePre,
+           Dot @ ParsePatch   -> ExpectAdd,
+        Hyphen @ ParsePatch   -> ExpectPre,
+          Plus @ ParsePatch   -> ExpectBuild,
+
+
+        Number @ ExpectAdd    -> ParseAdd,
+             V @ ExpectAdd    -> ParsePre,
+         Alpha @ ExpectAdd    -> ParsePre,
+
+    EndOfInput @ ParseAdd     -> EndOfInput,
+    Whitespace @ ParseAdd     -> EndOfInput,
+        Number @ ParseAdd     -> ParseAdd,
+             V @ ParseAdd     -> ParsePre,
+         Alpha @ ParseAdd     -> ParsePre,
+           Dot @ ParseAdd     -> ExpectAdd,
+        Hyphen @ ParseAdd     -> ExpectPre,
+          Plus @ ParseAdd     -> ExpectBuild,
+
+
+        Number @ ExpectPre    -> ParsePre,
+             V @ ExpectPre    -> ParsePre,
+         Alpha @ ExpectPre    -> ParsePre,
+
+    EndOfInput @ ParsePre     -> EndOfInput,
+    Whitespace @ ParsePre     -> EndOfInput,
+        Number @ ParsePre     -> ParsePre,
+             V @ ParsePre     -> ParsePre,
+         Alpha @ ParsePre     -> ParsePre,
+           Dot @ ParsePre     -> ExpectPre,
+        Hyphen @ ParsePre     -> ExpectPre,
+          Plus @ ParsePre     -> ExpectBuild,
+
+
+        Number @ ExpectBuild  -> ParseBuild,
+             V @ ExpectBuild  -> ParseBuild,
+         Alpha @ ExpectBuild  -> ParseBuild,
+
+    EndOfInput @ ParseBuild   -> EndOfInput,
+    Whitespace @ ParseBuild   -> EndOfInput,
+        Number @ ParseBuild   -> ParseBuild,
+             V @ ParseBuild   -> ParseBuild,
+         Alpha @ ParseBuild   -> ParseBuild,
+           Dot @ ParseBuild   -> ExpectBuild,
+        Hyphen @ ParseBuild   -> ExpectBuild,
+
+
+    EndOfInput @ EndOfInput   -> EndOfInput,
+    Whitespace @ EndOfInput   -> EndOfInput,
+    );
+
+    let mut emits = [Emit::None; STATES * CLASSES];
+    emit!(emits:
+        Number @ ExpectMajor  -> SaveStart,
+    EndOfInput @ ExpectMajor  -> ErrorMissingMajor,
+    Alpha | Dot | Hyphen | Plus | Unexpected
+               @ ExpectMajor  -> ErrorUnexpected,
+
+        Number @ RequireMajor -> SaveStart,
+    EndOfInput @ RequireMajor -> ErrorMissingMajor,
+    Whitespace | Alpha | V | Dot | Hyphen | Plus | Unexpected
+               @ RequireMajor -> ErrorUnexpected,
+
+    Whitespace | EndOfInput | Dot | Hyphen | Plus
+               @ ParseMajor   -> Major,
+    Alpha | V | Unexpected
+               @ ParseMajor   -> ErrorUnexpected,
+
+    Number | V | Alpha
+               @ ExpectMinor  -> SaveStart,
+    EndOfInput @ ExpectMinor  -> ErrorMissingMinor,
+    Whitespace | Dot | Hyphen | Plus | Unexpected
+               @ ExpectMinor  -> ErrorUnexpected,
+
+    Whitespace | EndOfInput | Dot | Hyphen | Plus
+               @ ParseMinor   -> Minor,
+    Unexpected @ ParseMinor   -> ErrorUnexpected,
+
+    Number | V | Alpha
+               @ ExpectPatch  -> SaveStart,
+    EndOfInput @ ExpectPatch  -> ErrorMissingPatch,
+    Whitespace | Dot | Hyphen | Plus | Unexpected
+               @ ExpectPatch  -> ErrorUnexpected,
+
+    Whitespace | EndOfInput | Dot | Hyphen | Plus
+               @ ParsePatch   -> Patch,
+    Unexpected @ ParsePatch   -> ErrorUnexpected,
+
+    Number | V | Alpha
+               @ ExpectAdd    -> SaveStart,
+    EndOfInput @ ExpectAdd    -> ErrorMissingPre,
+    Whitespace | Dot | Hyphen | Plus | Unexpected
+               @ ExpectAdd    -> ErrorUnexpected,
+
+    Whitespace | EndOfInput | Dot | Hyphen | Plus
+               @ ParseAdd     -> Add,
+    Unexpected @ ParseAdd     -> ErrorUnexpected,
+
+    Number | V | Alpha
+               @ ExpectPre    -> SaveStart,
+    EndOfInput @ ExpectPre    -> ErrorMissingPre,
+    Whitespace | Dot | Hyphen | Plus | Unexpected
+               @ ExpectPre    -> ErrorUnexpected,
+
+    Whitespace | EndOfInput | Dot | Hyphen | Plus
+               @ ParsePre     -> Pre,
+    Unexpected @ ParsePre     -> ErrorUnexpected,
+
+    Number | V | Alpha
+               @ ExpectBuild  -> SaveStart,
+    EndOfInput @ ExpectBuild  -> ErrorMissingBuild,
+    Whitespace | Dot | Hyphen | Plus | Unexpected
+               @ ExpectBuild  -> ErrorUnexpected,
+
+    Whitespace | EndOfInput | Dot | Hyphen | Plus
+               @ ParseBuild   -> Build,
+    Unexpected @ ParseBuild   -> ErrorUnexpected,
+
+    Alpha | V | Number | Dot | Hyphen | Plus | Unexpected
+               @ EndOfInput   -> ErrorUnexpected,
+    );
+
+    (transitions, emits)
+}
+
+static LOOKUP: Lookup = class_lookup();
+static DFA: Dfa = dfa();
+
+#[inline(always)]
+const fn transpose(class_lookup: Lookup, dfa: Dfa, s: State, b: u8) -> (State, Emit) {
+    transition(dfa, s, class_lookup[b as usize])
+}
+
+#[inline(always)]
+const fn transition(dfa: Dfa, s: State, class: Class) -> (State, Emit) {
+    let index = dfa_index(s, class) as usize;
+    (dfa.0[index], dfa.1[index])
+}
+
+fn do_nothing<'input, V>(
+    _input: &'input str,
+    _v: &mut V,
+    _start: &mut usize,
+    _new_state: &mut State,
+    _index: usize,
+) -> Result<(), ErrorSpan>
+where
+    V: VersionBuilder<'input>,
+{
+    Ok(())
+}
+
+fn save_start<'input, V>(
+    _input: &'input str,
+    _v: &mut V,
+    start: &mut usize,
+    _new_state: &mut State,
+    index: usize,
+) -> Result<(), ErrorSpan>
+where
+    V: VersionBuilder<'input>,
+{
+    *start = index;
+    Ok(())
+}
+
+fn parse_major<'input, V>(
+    input: &'input str,
+    v: &mut V,
+    start: &mut usize,
+    _new_state: &mut State,
+    index: usize,
+) -> Result<(), ErrorSpan>
+where
+    V: VersionBuilder<'input>,
+{
+    match input[*start..index].parse::<u64>() {
+        Ok(num) => {
+            v.set_major(num);
+            Ok(())
         }
+        _ => Err(ErrorSpan::new(
+            ErrorType::MajorNotNumeric,
+            Span::new(*start as u8, index as u8),
+        )),
     }
 }
 
-#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
-struct Span {
-    start: u8,
-    end: u8,
+fn parse_minor<'input, V>(
+    input: &'input str,
+    v: &mut V,
+    start: &mut usize,
+    new_state: &mut State,
+    index: usize,
+) -> Result<(), ErrorSpan>
+where
+    V: VersionBuilder<'input>,
+{
+    let segment = &input[*start..index];
+    match segment.parse::<u64>() {
+        Ok(num) => v.set_minor(num),
+        _ => {
+            v.add_pre_release(segment);
+            if *new_state < State::ExpectPre {
+                *new_state = State::ExpectPre;
+            }
+        }
+    };
+    Ok(())
 }
 
-impl Span {
-    fn new(start: u8, end: u8) -> Self {
-        Self { start, end }
-    }
-
-    fn at<'input>(&self, input: &'input str) -> &'input str {
-        &input[self.start as usize..self.end as usize]
-    }
+fn parse_patch<'input, V>(
+    input: &'input str,
+    v: &mut V,
+    start: &mut usize,
+    new_state: &mut State,
+    index: usize,
+) -> Result<(), ErrorSpan>
+where
+    V: VersionBuilder<'input>,
+{
+    let segment = &input[*start..index];
+    match segment.parse::<u64>() {
+        Ok(num) => v.set_patch(num),
+        _ => {
+            v.add_pre_release(segment);
+            if *new_state < State::ExpectPre {
+                *new_state = State::ExpectPre;
+            }
+        }
+    };
+    Ok(())
 }
 
-impl From<Span> for Range<usize> {
-    fn from(s: Span) -> Self {
-        s.start as usize..s.end as usize
+fn parse_add<'input, V>(
+    input: &'input str,
+    v: &mut V,
+    start: &mut usize,
+    new_state: &mut State,
+    index: usize,
+) -> Result<(), ErrorSpan>
+where
+    V: VersionBuilder<'input>,
+{
+    let segment = &input[*start..index];
+    match segment.parse::<u64>() {
+        Ok(num) => v.add_additional(num),
+        _ => {
+            v.add_pre_release(segment);
+            if *new_state < State::ExpectPre {
+                *new_state = State::ExpectPre;
+            }
+        }
+    };
+    Ok(())
+}
+
+fn parse_pre_release<'input, V>(
+    input: &'input str,
+    v: &mut V,
+    start: &mut usize,
+    new_state: &mut State,
+    index: usize,
+) -> Result<(), ErrorSpan>
+where
+    V: VersionBuilder<'input>,
+{
+    let segment = &input[*start..index];
+    if is_release_identifier(segment) {
+        if *new_state < State::EndOfInput {
+            return error_unexpected(input, v, start, new_state, index);
+        }
+        v.add_build(segment);
+    } else {
+        v.add_pre_release(segment);
     }
+
+    Ok(())
+}
+
+fn parse_build<'input, V>(
+    input: &'input str,
+    v: &mut V,
+    start: &mut usize,
+    _new_state: &mut State,
+    index: usize,
+) -> Result<(), ErrorSpan>
+where
+    V: VersionBuilder<'input>,
+{
+    v.add_build(&input[*start..index]);
+    Ok(())
+}
+
+fn error_missing_major<'input, V>(
+    input: &'input str,
+    _v: &mut V,
+    _start: &mut usize,
+    _new_state: &mut State,
+    index: usize,
+) -> Result<(), ErrorSpan>
+where
+    V: VersionBuilder<'input>,
+{
+    error_missing(Segment::Part(Part::Major), input, index)
+}
+
+fn error_missing_minor<'input, V>(
+    input: &'input str,
+    _v: &mut V,
+    _start: &mut usize,
+    _new_state: &mut State,
+    index: usize,
+) -> Result<(), ErrorSpan>
+where
+    V: VersionBuilder<'input>,
+{
+    error_missing(Segment::Part(Part::Minor), input, index)
+}
+
+fn error_missing_patch<'input, V>(
+    input: &'input str,
+    _v: &mut V,
+    _start: &mut usize,
+    _new_state: &mut State,
+    index: usize,
+) -> Result<(), ErrorSpan>
+where
+    V: VersionBuilder<'input>,
+{
+    error_missing(Segment::Part(Part::Patch), input, index)
+}
+
+fn error_missing_pre<'input, V>(
+    input: &'input str,
+    _v: &mut V,
+    _start: &mut usize,
+    _new_state: &mut State,
+    index: usize,
+) -> Result<(), ErrorSpan>
+where
+    V: VersionBuilder<'input>,
+{
+    error_missing(Segment::PreRelease, input, index)
+}
+
+fn error_missing_build<'input, V>(
+    input: &'input str,
+    _v: &mut V,
+    _start: &mut usize,
+    _new_state: &mut State,
+    index: usize,
+) -> Result<(), ErrorSpan>
+where
+    V: VersionBuilder<'input>,
+{
+    error_missing(Segment::Build, input, index)
+}
+
+fn error_missing(segment: Segment, input: &str, index: usize) -> Result<(), ErrorSpan> {
+    let span = if index < input.len() {
+        span_from(input, index)
+    } else {
+        Span::new(index as u8, index as u8)
+    };
+    Err(ErrorSpan::new(ErrorType::Missing(segment), span))
+}
+
+fn error_unexpected<'input, V>(
+    input: &'input str,
+    _v: &mut V,
+    _start: &mut usize,
+    _new_state: &mut State,
+    index: usize,
+) -> Result<(), ErrorSpan>
+where
+    V: VersionBuilder<'input>,
+{
+    Err(ErrorSpan::new(
+        ErrorType::Unexpected,
+        span_from(input, index),
+    ))
+}
+
+#[inline]
+fn span_from(input: &str, index: usize) -> Span {
+    Span::new(
+        index as u8,
+        (index + utf8_len(input.as_bytes()[index])) as u8,
+    )
+}
+
+fn parse_internal<'input, V>(input: &'input str) -> Result<V::Out, ErrorSpan>
+where
+    V: VersionBuilder<'input>,
+{
+    let actions: [for<'local> fn(
+        &'input str,
+        &'local mut V,
+        &'local mut usize,
+        &'local mut State,
+        usize,
+    ) -> Result<(), ErrorSpan>; EMITS] = [
+        do_nothing,
+        save_start,
+        parse_major,
+        parse_minor,
+        parse_patch,
+        parse_add,
+        parse_pre_release,
+        parse_build,
+        error_missing_major,
+        error_missing_minor,
+        error_missing_patch,
+        error_missing_pre,
+        error_missing_build,
+        error_unexpected,
+    ];
+    let mut start = 0_usize;
+    let mut v = V::new();
+    let mut state = State::ExpectMajor;
+    for (index, b) in input.bytes().enumerate() {
+        let (mut new_state, emits) = transpose(LOOKUP, DFA, state, b);
+        // eprintln!(
+        //     "{:>12}  ->  {}  ?->  {} ?^ {:?}",
+        //     state, b as char, new_state, emits
+        // );
+        (actions[emits as u8 as usize])(input, &mut v, &mut start, &mut new_state, index)?;
+        // eprintln!(
+        //     "{:>12}  ->  {}  ->  {} ^ {:?}",
+        //     state, b as char, new_state, emits
+        // );
+        state = new_state;
+    }
+    let (mut new_state, emits) = transition(DFA, state, Class::EndOfInput);
+    // eprintln!("{:>12}  -> EOI ?->  {} ?^ {:?}", state, new_state, emits);
+    (actions[emits as u8 as usize])(input, &mut v, &mut start, &mut new_state, input.len())?;
+    // eprintln!("{:>12}  -> EOI ->  {} ^ {:?}", state, new_state, emits);
+    Ok(v.build())
 }
 
 #[cfg(test)]
@@ -1369,30 +1536,44 @@ mod tests {
         parse::<Version>(input)
     }
 
-    #[test_case("" => Err(ErrorSpan::new(ErrorType::Missing(Segment::Part(Part::Major)), Span::new(0, 0))))]
-    #[test_case("  " => Err(ErrorSpan::new(ErrorType::Missing(Segment::Part(Part::Major)), Span::new(0, 2))))]
-    #[test_case("1. " => Err(ErrorSpan::new(ErrorType::Missing(Segment::Part(Part::Minor)), Span::new(2, 3))))]
-    #[test_case("1.2. " => Err(ErrorSpan::new(ErrorType::Missing(Segment::Part(Part::Patch)), Span::new(4, 5))))]
-    #[test_case("1.2.3-" => Err(ErrorSpan::new(ErrorType::Missing(Segment::PreRelease), Span::new(6, 6))))]
+    #[test_case("" => Err(ErrorSpan::new(ErrorType::Missing(Segment::Part(Part::Major)), Span::new(0, 0))); "empty input")]
+    #[test_case("  " => Err(ErrorSpan::new(ErrorType::Missing(Segment::Part(Part::Major)), Span::new(2, 2))); "whitespace input")]
+    #[test_case("." => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(0, 1))); "dot")]
+    #[test_case("🙈" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(0, 4))); "emoji")]
+    #[test_case("v" => Err(ErrorSpan::new(ErrorType::Missing(Segment::Part(Part::Major)), Span::new(1, 1))); "v")]
+    #[test_case("val" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(1, 2))); "val")]
+    #[test_case("v🙈" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(1, 5))); "v-emoji")]
+    #[test_case("1🙈" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(1, 5))); "1-emoji")]
+    #[test_case("1." => Err(ErrorSpan::new(ErrorType::Missing(Segment::Part(Part::Minor)), Span::new(2, 2))); "eoi after major")]
+    #[test_case("1. " => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(2, 3))); "whitespace after major")]
+    #[test_case("1.2." => Err(ErrorSpan::new(ErrorType::Missing(Segment::Part(Part::Patch)), Span::new(4, 4))); "eoi after minor")]
+    #[test_case("1.2. " => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(4, 5))); "whitespace after minor")]
+    #[test_case("1.2.3-" => Err(ErrorSpan::new(ErrorType::Missing(Segment::PreRelease), Span::new(6, 6))); "eoi after hyphen")]
+    #[test_case("1.2.3- " => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 7))); "whitespace after hyphen")]
+    #[test_case("1.2.3.4-" => Err(ErrorSpan::new(ErrorType::Missing(Segment::PreRelease), Span::new(8, 8))); "eoi after additional")]
+    #[test_case("1.2.3.4- " => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(8, 9))); "whitespace after additional")]
+    #[test_case("1.2.3+" => Err(ErrorSpan::new(ErrorType::Missing(Segment::Build), Span::new(6, 6))); "eoi after plus")]
+    #[test_case("1.2.3+ " => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 7))); "whitespace after plus")]
     #[test_case("1.2.3-." => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 7))); "pre release trailing dot")]
     #[test_case("1.2.3--" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 7))); "pre release trailing hyphen")]
     #[test_case("1.2.3-+" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 7))); "pre release trailing plus")]
-    #[test_case("1.2.3+" => Err(ErrorSpan::new(ErrorType::Missing(Segment::Build), Span::new(6, 6))))]
+    #[test_case("1.2.3-🙈" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 10))); "pre release trailing emoji")]
     #[test_case("1.2.3+." => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 7))); "build trailing dot")]
     #[test_case("1.2.3+-" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 7))); "build trailing hyphen")]
     #[test_case("1.2.3++" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 7))); "build trailing plus")]
-    #[test_case("v.1.2.3" => Err(ErrorSpan::new(ErrorType::MajorNotNumeric, Span::new(0, 1))))]
-    #[test_case("v-2.3.4" => Err(ErrorSpan::new(ErrorType::MajorNotNumeric, Span::new(0, 1))))]
-    #[test_case("v+3.4.5" => Err(ErrorSpan::new(ErrorType::MajorNotNumeric, Span::new(0, 1))))]
-    #[test_case("vv1.2.3" => Err(ErrorSpan::new(ErrorType::MajorNotNumeric, Span::new(0, 3))))]
-    #[test_case("v v1.2.3" => Err(ErrorSpan::new(ErrorType::MajorNotNumeric, Span::new(0, 1))))]
-    #[test_case("a1.2.3" => Err(ErrorSpan::new(ErrorType::MajorNotNumeric, Span::new(0, 2))))]
-    #[test_case("a.b.c" => Err(ErrorSpan::new(ErrorType::MajorNotNumeric, Span::new(0, 1))))]
-    #[test_case("1.+.0" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(2, 3))))]
-    #[test_case("1.2.." => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(4, 5))))]
-    #[test_case("123456789012345678901234567890" => Err(ErrorSpan::new(ErrorType::MajorNotNumeric, Span::new(0, 30))))]
-    #[test_case("1 abc" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(1, 2))))]
-    #[test_case("1.2.3 abc" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(5, 6))))]
+    #[test_case("1.2.3-🙈" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 10))); "build trailing emoji")]
+    #[test_case("v.1.2.3" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(1, 2))); "v followed by dot")]
+    #[test_case("v-2.3.4" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(1, 2))); "v followed by hyphen")]
+    #[test_case("v+3.4.5" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(1, 2))); "v followed by plus")]
+    #[test_case("vv1.2.3" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(1, 2))); "v followed by v")]
+    #[test_case("v v1.2.3" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(1, 2))); "v followed by whitespace")]
+    #[test_case("a1.2.3" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(0, 1))); "starting with a-1")]
+    #[test_case("a.b.c" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(0, 1))); "starting with a-dot")]
+    #[test_case("1.+.0" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(2, 3))); "plus as minor")]
+    #[test_case("1.2.." => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(4, 5))); "dot as patch")]
+    #[test_case("123456789012345678901234567890" => Err(ErrorSpan::new(ErrorType::MajorNotNumeric, Span::new(0, 30))); "number overflows u64")]
+    #[test_case("1 abc" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(2, 3))); "a following parsed number 1")]
+    #[test_case("1.2.3 abc" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 7))); "a following parsed number 1.2.3")]
     fn test_simple_errors(input: &str) -> Result<Version, ErrorSpan> {
         parse_internal::<Version>(input)
     }
@@ -1403,7 +1584,7 @@ mod tests {
 "#; "empty string")]
     #[test_case("  " => r#"Could not parse the major identifier: No input
 |      
-|    ^^
+|    ~~
 "#; "blank string")]
     #[test_case("1.2.3-" => r#"Could not parse the pre-release identifier: No input
 |    1.2.3-
@@ -1413,7 +1594,7 @@ mod tests {
 |    1.2.3+
 |    ~~~~~~
 "#)]
-    #[test_case("a.b.c" => r#"Could not parse the major identifier: `a` is not a number
+    #[test_case("a.b.c" => r#"Unexpected `a`
 |    a.b.c
 |    ^
 "#)]
@@ -1429,202 +1610,12 @@ mod tests {
 |    123456789012345678901234567890
 |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 "#)]
-    #[test_case("1.2.3 abc" => r#"Unexpected ` `
+    #[test_case("1.2.3 abc" => r#"Unexpected `a`
 |    1.2.3 abc
-|    ~~~~~^
+|    ~~~~~~^
 "#)]
     fn test_full_errors(input: &str) -> String {
         format!("{:#}", parse::<Version>(input).unwrap_err())
-    }
-
-    #[test]
-    fn test_lexer() {
-        let tokens = lex(" v v1.2.3-1.alpha1.9+build5.7.3aedf-01337  ")
-            .unwrap()
-            .collect::<Vec<_>>();
-        //"  | v |   | v 1 | . | 2 | . | 3 | - | 1 | . | a l p h a 1 | . | 9 | + | b u i l d 5 | . | 7 | . | 3 a e d f | - | 0 1 3 3 7 |       |"
-        //"0 | 1 | 2 | 3 4 | 5 | 6 | 7 | 8 | 9 | 0 | 1 | 2 3 4 5 6 7 | 8 | 9 | 0 | 1 2 3 4 5 6 | 7 | 8 | 9 | 0 1 2 3 4 | 5 | 6 7 8 9 0 | 1 2 3 |"
-        pretty_assertions::assert_eq!(
-            tokens,
-            vec![
-                TokenSpan::new(Token::Alpha, 1, 2),
-                TokenSpan::new(Token::UnexpectedChar, 2, 3),
-                TokenSpan::new(Token::Alpha, 3, 5),
-                TokenSpan::new(Token::Dot, 5, 6),
-                TokenSpan::new(Token::Numeric, 6, 7),
-                TokenSpan::new(Token::Dot, 7, 8),
-                TokenSpan::new(Token::Numeric, 8, 9),
-                TokenSpan::new(Token::Hyphen, 9, 10),
-                TokenSpan::new(Token::Numeric, 10, 11),
-                TokenSpan::new(Token::Dot, 11, 12),
-                TokenSpan::new(Token::Alpha, 12, 18),
-                TokenSpan::new(Token::Dot, 18, 19),
-                TokenSpan::new(Token::Numeric, 19, 20),
-                TokenSpan::new(Token::Plus, 20, 21),
-                TokenSpan::new(Token::Alpha, 21, 27),
-                TokenSpan::new(Token::Dot, 27, 28),
-                TokenSpan::new(Token::Numeric, 28, 29),
-                TokenSpan::new(Token::Dot, 29, 30),
-                TokenSpan::new(Token::Alpha, 30, 35),
-                TokenSpan::new(Token::Hyphen, 35, 36),
-                TokenSpan::new(Token::Numeric, 36, 41),
-            ]
-        );
-    }
-
-    #[test]
-    fn test_lexer_numbers() {
-        let tokens = lex("1.0.00.08.09.8.9").unwrap().collect::<Vec<_>>();
-        //"1 | . | 0 | . | 0 0 | . | 0 8 | . | 0 9 | . | 8 | . | 9 |"
-        //"0 | 1 | 2 | 3 | 4 5 | 6 | 7 8 | 9 | 0 1 | 2 | 3 | 4 | 5 |"
-        pretty_assertions::assert_eq!(
-            tokens,
-            vec![
-                TokenSpan::new(Token::Numeric, 0, 1),
-                TokenSpan::new(Token::Dot, 1, 2),
-                TokenSpan::new(Token::Numeric, 2, 3),
-                TokenSpan::new(Token::Dot, 3, 4),
-                TokenSpan::new(Token::Numeric, 4, 6),
-                TokenSpan::new(Token::Dot, 6, 7),
-                TokenSpan::new(Token::Numeric, 7, 9),
-                TokenSpan::new(Token::Dot, 9, 10),
-                TokenSpan::new(Token::Numeric, 10, 12),
-                TokenSpan::new(Token::Dot, 12, 13),
-                TokenSpan::new(Token::Numeric, 13, 14),
-                TokenSpan::new(Token::Dot, 14, 15),
-                TokenSpan::new(Token::Numeric, 15, 16),
-            ]
-        );
-    }
-
-    #[test]
-    fn test_lexer_invalid_number() {
-        let input = "123456789012345678901234567890";
-        let tokens = lex(input).unwrap().collect::<Vec<_>>();
-        assert_eq!(tokens, vec![TokenSpan::new(Token::Numeric, 0, 30)]);
-    }
-
-    #[test]
-    fn test_lexer_invalid_token() {
-        let input = "!#∰~[🙈]";
-        let tokens = lex(input).unwrap().collect::<Vec<_>>();
-        pretty_assertions::assert_eq!(
-            tokens,
-            vec![
-                TokenSpan::new(Token::UnexpectedChar, 0, 1),
-                TokenSpan::new(Token::UnexpectedChar, 1, 2),
-                TokenSpan::new(Token::UnexpectedChar, 2, 5),
-                TokenSpan::new(Token::UnexpectedChar, 5, 6),
-                TokenSpan::new(Token::UnexpectedChar, 6, 7),
-                TokenSpan::new(Token::UnexpectedChar, 7, 11),
-                TokenSpan::new(Token::UnexpectedChar, 11, 12),
-            ]
-        );
-    }
-
-    #[test]
-    fn test_lexer_empty_string() {
-        let input = "";
-        let tokens = lex(input).unwrap().collect::<Vec<_>>();
-        assert_eq!(tokens, vec![]);
-    }
-
-    #[test]
-    fn test_lexer_whitespace() {
-        let input = " \t\r\n";
-        let tokens = lex(input).unwrap().collect::<Vec<_>>();
-        assert_eq!(tokens, vec![]);
-    }
-
-    #[test]
-    fn test_lexer_surround_whitespace() {
-        let input = " \t\r\n42 \t\r\n";
-        let tokens = lex(input).unwrap().collect::<Vec<_>>();
-        assert_eq!(tokens, vec![TokenSpan::new(Token::Numeric, 4, 6)]);
-    }
-
-    #[test]
-    fn test_lexer_input_too_large() {
-        let input = std::iter::repeat("x").take(256).collect::<String>();
-        let error = lex(&input).unwrap_err();
-        assert_eq!(
-            error,
-            ErrorSpan::new(ErrorType::InputTooLarge, Span::new(254, 255))
-        );
-    }
-
-    #[test]
-    fn test_parse_tokens() {
-        let tokens = vec![
-            TokenSpan::new(Token::Numeric, 2, 3),
-            TokenSpan::new(Token::Dot, 3, 4),
-            TokenSpan::new(Token::Numeric, 4, 5),
-            TokenSpan::new(Token::Dot, 5, 6),
-            TokenSpan::new(Token::Numeric, 6, 7),
-            TokenSpan::new(Token::Hyphen, 7, 8),
-            TokenSpan::new(Token::Numeric, 8, 9),
-            TokenSpan::new(Token::Dot, 9, 10),
-            TokenSpan::new(Token::Alpha, 10, 16),
-            TokenSpan::new(Token::Dot, 16, 17),
-            TokenSpan::new(Token::Numeric, 17, 18),
-            TokenSpan::new(Token::Plus, 18, 19),
-            TokenSpan::new(Token::Alpha, 19, 25),
-            TokenSpan::new(Token::Dot, 25, 26),
-            TokenSpan::new(Token::Numeric, 26, 27),
-            TokenSpan::new(Token::Dot, 27, 28),
-            TokenSpan::new(Token::Alpha, 28, 33),
-        ];
-        assert_eq!(
-            parse_from_iter::<_, Version>("  1.2.3-1.alpha1.9+build5.7.3aedf   ", tokens),
-            Ok(Version {
-                major: 1,
-                minor: 2,
-                patch: 3,
-                pre: vec![
-                    Identifier::Numeric(1),
-                    Identifier::AlphaNumeric("alpha1".into()),
-                    Identifier::Numeric(9),
-                ],
-                build: vec![
-                    Identifier::AlphaNumeric("build5".into()),
-                    Identifier::Numeric(7),
-                    Identifier::AlphaNumeric("3aedf".into()),
-                ],
-            })
-        );
-    }
-
-    #[test]
-    fn test_parse_number_or_vnumber_numeric() {
-        assert_eq!(
-            parse_number_or_vnumber(TokenSpan::new(Token::Numeric, 0, 2), "42"),
-            Ok(42)
-        )
-    }
-
-    #[test]
-    fn test_parse_number_or_vnumber_zero_numeric() {
-        assert_eq!(
-            parse_number_or_vnumber(TokenSpan::new(Token::Numeric, 0, 3), "042"),
-            Ok(42)
-        )
-    }
-
-    #[test]
-    fn test_parse_number_or_vnumber_v_numeric() {
-        assert_eq!(
-            parse_number_or_vnumber(TokenSpan::new(Token::Alpha, 0, 3), "v42"),
-            Ok(42)
-        )
-    }
-
-    #[test_case(Token::Dot => Err(ErrorType::MajorNotNumeric))]
-    #[test_case(Token::Plus => Err(ErrorType::MajorNotNumeric))]
-    #[test_case(Token::Hyphen => Err(ErrorType::MajorNotNumeric))]
-    #[test_case(Token::Alpha => Err(ErrorType::MajorNotNumeric))]
-    #[test_case(Token::UnexpectedChar => Err(ErrorType::MajorNotNumeric))]
-    fn parse_version_number_error(token: Token) -> Result<u64, ErrorType> {
-        parse_number_or_vnumber(TokenSpan::new(token, 0, 1), "x").map_err(|e| e.error)
     }
 
     #[test_case("Final"; "final pascal")]
