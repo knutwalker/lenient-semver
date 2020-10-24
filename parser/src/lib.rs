@@ -1379,6 +1379,154 @@ pub mod generator {
         let x = x ^ x.wrapping_shl(5);
         (x, x as usize % upper)
     }
+
+    #[cfg(test)]
+    fn dot() -> String {
+        struct Node {
+            name: String,
+            emits: bool,
+        };
+        struct Edge {
+            from: State,
+            to: State,
+            matches: String,
+            emits: bool,
+        }
+
+        let mut nodes = [
+            State::ExpectMajor,
+            State::ParseMajor,
+            State::ExpectMinor,
+            State::ParseMinor,
+            State::ExpectPatch,
+            State::ParsePatch,
+            State::ExpectAdd,
+            State::ParseAdd,
+            State::ExpectPre,
+            State::ParsePre,
+            State::ExpectBuild,
+            State::ParseBuild,
+            State::RequireMajor,
+            // State::EndOfInput,
+            // State::Error,
+        ]
+        .iter()
+        .map(|s| {
+            (
+                *s,
+                Node {
+                    name: format!("{}", s),
+                    emits: false,
+                },
+            )
+        })
+        .collect::<HashMap<State, Node>>();
+
+        let classes = [
+            Class::Number,
+            Class::Alpha,
+            Class::Dot,
+            Class::Hyphen,
+            Class::Plus,
+            Class::V,
+            Class::Whitespace,
+            Class::EndOfInput,
+            Class::Unexpected,
+        ];
+
+        let edges = nodes
+            .iter_mut()
+            .map(|(&s, node)| {
+                let mut targets = HashMap::new();
+                for &c in &classes {
+                    let (target, emit) = transition(&DFA, s, c);
+                    if target != State::Error {
+                        let emits = emit != Emit::None && emit != Emit::SaveStart;
+                        targets
+                            .entry((target, emits))
+                            .or_insert_with(Vec::new)
+                            .push(c);
+                    }
+                }
+                let ends = targets
+                    .remove(&(State::EndOfInput, true))
+                    .or(targets.remove(&(State::EndOfInput, false)));
+
+                if ends.is_some() {
+                    node.emits = true;
+                }
+
+                (s, targets)
+            })
+            .collect::<HashMap<State, HashMap<(State, bool), Vec<Class>>>>();
+
+        let edges = edges
+            .into_iter()
+            .flat_map(|(from, targets)| {
+                let targets = targets
+                    .into_iter()
+                    .map(|((to, emits), classes)| {
+                        let has_alpha = classes.contains(&Class::Alpha);
+                        let matches = classes
+                            .into_iter()
+                            .filter(|c| !has_alpha || *c != Class::V)
+                            .map(|c| c.to_string())
+                            .collect::<String>();
+                        Edge {
+                            from,
+                            to,
+                            matches,
+                            emits,
+                        }
+                    })
+                    .collect::<Vec<Edge>>();
+                targets
+            })
+            .collect::<Vec<Edge>>();
+
+        let mut statements = nodes
+            .into_iter()
+            .map(|(state, node)| {
+                let shape_color = if node.emits {
+                    "shape=doublecircle color=blue3"
+                } else {
+                    ""
+                };
+                format!(r#"{}[label="{}"{}]"#, state, node.name, shape_color)
+            })
+            .collect::<Vec<_>>();
+
+        statements.extend(edges.into_iter().map(
+            |Edge {
+                 from,
+                 to,
+                 matches,
+                 emits,
+             }| {
+                let color = if emits {
+                    " color=green3 fontcolor=green4 penwidth=1.7"
+                } else {
+                    ""
+                };
+                format!(r#"{} -> {}[label="{}"{}]"#, from, to, matches, color)
+            },
+        ));
+
+        statements.insert(
+            0,
+            String::from(r#"edge [fontname="JetBrains Mono,Fira Code,Monospace"]"#),
+        );
+        statements.insert(0, String::from(r#"node [margin=0.02 shape=circle]"#));
+        statements.insert(0, String::from(r#"graph [rankdir=LR]"#));
+
+        let statements = statements.join(";\n    ");
+        format!("digraph dfa {{\n    {};\n}}", statements)
+    }
+
+    #[test]
+    fn print_dot() {
+        println!("{}", dot());
+    }
 }
 
 #[cfg(test)]
