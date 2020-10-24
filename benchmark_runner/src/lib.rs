@@ -12,6 +12,16 @@ macro_rules! run_group {
                 });
             )+
         }
+
+        let mega = ::benchmarks::mega_input();
+
+        $(
+            let id = BenchmarkId::new($name, "mega");
+            group.bench_with_input(id, &mega, |b, mega| {
+                b.iter(|| $fun(::criterion::black_box(mega)))
+            });
+        )+
+
         group.finish();
     }};
 }

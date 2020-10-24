@@ -1296,6 +1296,90 @@ where
     Ok(v.build())
 }
 
+/// for benchmarks
+#[cfg(feature = "generator")]
+pub mod generator {
+    #[cfg(test)]
+    use std::collections::HashMap;
+
+    use super::*;
+
+    /// for benchmarks
+    // woudl be const fn but need to inc #[const_eval_limit]
+    pub fn generate_20000(seed: u32) -> [u8; 20_000] {
+        let classes = [
+            Class::Number,
+            Class::Alpha,
+            Class::Dot,
+            Class::Hyphen,
+            Class::Plus,
+            Class::V,
+        ];
+        let dfa = dfa();
+
+        let mut seed = if seed == 0 { 0xBAD_5EED } else { seed };
+        let mut state = State::ExpectMajor;
+        let mut candidates = [Class::Whitespace; 6];
+
+        let mut result = [0x20_u8; 20_000];
+        let size = 20_000_usize;
+        let mut index = 0_usize;
+        while index < size {
+            let mut cls = 0;
+            let mut num_candidates = 0;
+            while cls < classes.len() {
+                let possible_state = transition(&dfa, state, classes[cls]).0;
+                if possible_state as u8 != State::Error as u8 {
+                    candidates[num_candidates] = classes[cls];
+                    num_candidates += 1;
+                }
+                cls += 1;
+            }
+            let (new_seed, candidate) = roll(seed, num_candidates);
+            let candidate = candidates[candidate];
+            let (new_seed, ch) = char_for(new_seed, candidate);
+            seed = new_seed;
+            state = transition(&dfa, state, candidate).0;
+            result[index] = ch;
+            index += 1;
+        }
+
+        result
+    }
+
+    const fn char_for(seed: u32, class: Class) -> (u32, u8) {
+        match class {
+            Class::Number => {
+                let (seed, number) = roll(seed, 10);
+                (seed, b'0' + number as u8)
+            }
+            Class::Alpha => {
+                let (seed, use_upper) = roll(seed, 2);
+                let (seed, number) = roll(seed, 26);
+                let start = if use_upper == 0 { b'a' } else { b'A' };
+                (seed, start + number as u8)
+            }
+            Class::Dot => (seed, b'.'),
+            Class::Hyphen => (seed, b'-'),
+            Class::Plus => (seed, b'+'),
+            Class::V => {
+                let (seed, use_upper) = roll(seed, 2);
+                let value = if use_upper == 0 { b'v' } else { b'V' };
+                (seed, value)
+            }
+            Class::Whitespace | Class::EndOfInput | Class::Unexpected => (seed, b' '),
+        }
+    }
+
+    const fn roll(seed: u32, upper: usize) -> (u32, usize) {
+        let x = seed;
+        let x = x ^ x.wrapping_shl(13);
+        let x = x ^ x.wrapping_shr(17);
+        let x = x ^ x.wrapping_shl(5);
+        (x, x as usize % upper)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

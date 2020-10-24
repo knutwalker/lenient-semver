@@ -10,6 +10,12 @@ const INPUT_S: &str = "1.0.0";
 const INPUT_XL: &str = "  1.2.3-1.alpha1.9+build5.7.3aedf.01337  ";
 pub const INPUTS: [&str; 2] = [INPUT_S, INPUT_XL];
 
+pub fn mega_input() -> String {
+    let data = lenient_semver_parser::generator::generate_20000(42);
+    let data = Vec::from(data);
+    String::from_utf8(data).unwrap()
+}
+
 #[inline(always)]
 pub fn lenient_semver(input: &str) -> Version {
     parse::<Version>(input).unwrap()
