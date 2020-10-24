@@ -809,14 +809,6 @@ macro_rules! dfa {
         ($transitions:ident: $($cls:ident @ $state:ident -> $target:ident),+,) => {
             $($transitions[dfa_index(State::$state, Class::$cls) as usize] = State::$target;)+
         };
-
-        // ($transitions:ident: $($($cls:ident)|+ @ $state:ident -> $target:ident),+,) => {
-        //     $(
-        //         $(
-        //             $transitions[dfa_index(State::$state, Class::$cls) as usize] = State::$target;
-        //         )+
-        //     )+
-        // };
     }
 
 macro_rules! emit {
@@ -1292,23 +1284,16 @@ where
     let mut start = 0_usize;
     let mut v = V::new();
     let mut state = State::ExpectMajor;
+
+    let mut_v = &mut v;
+    let mut_s = &mut start;
     for (index, b) in input.bytes().enumerate() {
         let (mut new_state, emits) = transduce(&LOOKUP, &DFA, state, b);
-        // eprintln!(
-        //     "{:>12}  ->  {}  ?->  {} ?^ {:?}",
-        //     state, b as char, new_state, emits
-        // );
-        (actions[emits as u8 as usize])(input, &mut v, &mut start, &mut new_state, index)?;
-        // eprintln!(
-        //     "{:>12}  ->  {}  ->  {} ^ {:?}",
-        //     state, b as char, new_state, emits
-        // );
+        (actions[emits as u8 as usize])(input, mut_v, mut_s, &mut new_state, index)?;
         state = new_state;
     }
     let (mut new_state, emits) = transition(&DFA, state, Class::EndOfInput);
-    // eprintln!("{:>12}  -> EOI ?->  {} ?^ {:?}", state, new_state, emits);
-    (actions[emits as u8 as usize])(input, &mut v, &mut start, &mut new_state, input.len())?;
-    // eprintln!("{:>12}  -> EOI ->  {} ^ {:?}", state, new_state, emits);
+    (actions[emits as u8 as usize])(input, mut_v, mut_s, &mut new_state, input.len())?;
     Ok(v.build())
 }
 
