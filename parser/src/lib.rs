@@ -984,12 +984,12 @@ static LOOKUP: Lookup = class_lookup();
 static DFA: Dfa = dfa();
 
 #[inline(always)]
-const fn transpose(class_lookup: Lookup, dfa: Dfa, s: State, b: u8) -> (State, Emit) {
+const fn transduce(class_lookup: &Lookup, dfa: &Dfa, s: State, b: u8) -> (State, Emit) {
     transition(dfa, s, class_lookup[b as usize])
 }
 
 #[inline(always)]
-const fn transition(dfa: Dfa, s: State, class: Class) -> (State, Emit) {
+const fn transition(dfa: &Dfa, s: State, class: Class) -> (State, Emit) {
     let index = dfa_index(s, class) as usize;
     (dfa.0[index], dfa.1[index])
 }
@@ -1277,7 +1277,7 @@ where
     let mut v = V::new();
     let mut state = State::ExpectMajor;
     for (index, b) in input.bytes().enumerate() {
-        let (mut new_state, emits) = transpose(LOOKUP, DFA, state, b);
+        let (mut new_state, emits) = transduce(&LOOKUP, &DFA, state, b);
         // eprintln!(
         //     "{:>12}  ->  {}  ?->  {} ?^ {:?}",
         //     state, b as char, new_state, emits
@@ -1289,7 +1289,7 @@ where
         // );
         state = new_state;
     }
-    let (mut new_state, emits) = transition(DFA, state, Class::EndOfInput);
+    let (mut new_state, emits) = transition(&DFA, state, Class::EndOfInput);
     // eprintln!("{:>12}  -> EOI ?->  {} ?^ {:?}", state, new_state, emits);
     (actions[emits as u8 as usize])(input, &mut v, &mut start, &mut new_state, input.len())?;
     // eprintln!("{:>12}  -> EOI ->  {} ^ {:?}", state, new_state, emits);
