@@ -369,7 +369,7 @@ impl<'input> VersionBuilder<'input> for semver10::Version {
 pub struct Error<'input> {
     input: &'input str,
     span: Span,
-    error: ErrorType,
+    error: ErrorKind,
 }
 
 impl<'input> Error<'input> {
@@ -443,19 +443,7 @@ impl<'input> Error<'input> {
     /// ```
     #[inline]
     pub fn error_kind(&self) -> ErrorKind {
-        match self.error {
-            ErrorType::Missing(segment) => match segment {
-                Segment::Part(part) => match part {
-                    Part::Major => ErrorKind::MissingMajorNumber,
-                    Part::Minor => ErrorKind::MissingMinorNumber,
-                    Part::Patch => ErrorKind::MissingPatchNumber,
-                },
-                Segment::PreRelease => ErrorKind::MissingPreRelease,
-                Segment::Build => ErrorKind::MissingBuild,
-            },
-            ErrorType::MajorNotNumeric => ErrorKind::MajorNotANumber,
-            ErrorType::Unexpected => ErrorKind::UnexpectedInput,
-        }
+        self.error
     }
 
     /// Returns a slice from the original input line that triggered the error.
@@ -488,14 +476,26 @@ impl<'input> Error<'input> {
     /// ```
     pub fn error_line(&self) -> String {
         match &self.error {
-            ErrorType::Missing(segment) => {
-                format!("Could not parse the {} identifier: No input", segment)
+            ErrorKind::MissingMajorNumber => {
+                String::from("Could not parse the major identifier: No input")
             }
-            ErrorType::MajorNotNumeric => format!(
+            ErrorKind::MissingMinorNumber => {
+                String::from("Could not parse the minor identifier: No input")
+            }
+            ErrorKind::MissingPatchNumber => {
+                String::from("Could not parse the patch identifier: No input")
+            }
+            ErrorKind::MissingPreRelease => {
+                String::from("Could not parse the pre-release identifier: No input")
+            }
+            ErrorKind::MissingBuild => {
+                String::from("Could not parse the build identifier: No input")
+            }
+            ErrorKind::MajorNotANumber => format!(
                 "Could not parse the major identifier: `{}` is not a number",
                 self.erroneous_input()
             ),
-            ErrorType::Unexpected => format!("Unexpected `{}`", self.erroneous_input()),
+            ErrorKind::UnexpectedInput => format!("Unexpected `{}`", self.erroneous_input()),
         }
     }
 
@@ -514,13 +514,13 @@ impl<'input> Error<'input> {
         format!(
             "{0:~<start$}{0:^<width$}",
             "",
-            start = self.span.start as usize,
-            width = (self.span.end - self.span.start) as usize
+            start = self.span.start,
+            width = (self.span.end - self.span.start)
         )
     }
 
-    fn new(input: &'input str, error: ErrorType, start: usize, end: usize) -> Self {
-        let span = Span::new(start as u8, end as u8);
+    fn new(input: &'input str, error: ErrorKind, start: usize, end: usize) -> Self {
+        let span = Span::new(start, end);
         Error { input, error, span }
     }
 }
@@ -530,7 +530,7 @@ impl<'input> Error<'input> {
 pub struct OwnedError {
     input: String,
     span: Span,
-    error: ErrorType,
+    error: ErrorKind,
 }
 
 impl OwnedError {
@@ -583,7 +583,7 @@ impl OwnedError {
 /// Possible errors that can happen.
 /// These don't include an information as those are covered by various
 /// error methods like [`Error::erroneous_input`].
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub enum ErrorKind {
     /// Expected to parse the major number part, but nothing was found
     MissingMajorNumber,
@@ -635,75 +635,21 @@ impl Ord for Error<'_> {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-struct ErrorSpan {
-    error: ErrorType,
-    span: Span,
-}
-
-impl ErrorSpan {
-    #[cfg(test)]
-    fn new(error: ErrorType, span: Span) -> Self {
-        Self { error, span }
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-enum ErrorType {
-    Missing(Segment),
-    MajorNotNumeric,
-    Unexpected,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum Part {
-    Major,
-    Minor,
-    Patch,
-}
-
-impl Display for Part {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Part::Major => f.pad("major"),
-            Part::Minor => f.pad("minor"),
-            Part::Patch => f.pad("patch"),
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum Segment {
-    Part(Part),
-    PreRelease,
-    Build,
-}
-
-impl Display for Segment {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Segment::Part(part) => part.fmt(f),
-            Segment::PreRelease => f.pad("pre-release"),
-            Segment::Build => f.pad("build"),
-        }
-    }
-}
-
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 struct Span {
-    start: u8,
-    end: u8,
+    start: usize,
+    end: usize,
 }
 
 impl Span {
-    fn new(start: u8, end: u8) -> Self {
+    fn new(start: usize, end: usize) -> Self {
         Self { start, end }
     }
 }
 
 impl From<Span> for Range<usize> {
     fn from(s: Span) -> Self {
-        s.start as usize..s.end as usize
+        s.start..s.end
     }
 }
 
@@ -1085,7 +1031,7 @@ where
             v.set_major(num);
             Ok(())
         }
-        _ => Err(Error::new(input, ErrorType::MajorNotNumeric, *start, index)),
+        _ => Err(Error::new(input, ErrorKind::MajorNotANumber, *start, index)),
     }
 }
 
@@ -1205,7 +1151,7 @@ fn error_missing_major<'input, V>(
 where
     V: VersionBuilder<'input>,
 {
-    error_missing(Segment::Part(Part::Major), input, index)
+    error_missing(ErrorKind::MissingMajorNumber, input, index)
 }
 
 fn error_missing_minor<'input, V>(
@@ -1218,7 +1164,7 @@ fn error_missing_minor<'input, V>(
 where
     V: VersionBuilder<'input>,
 {
-    error_missing(Segment::Part(Part::Minor), input, index)
+    error_missing(ErrorKind::MissingMinorNumber, input, index)
 }
 
 fn error_missing_patch<'input, V>(
@@ -1231,7 +1177,7 @@ fn error_missing_patch<'input, V>(
 where
     V: VersionBuilder<'input>,
 {
-    error_missing(Segment::Part(Part::Patch), input, index)
+    error_missing(ErrorKind::MissingPatchNumber, input, index)
 }
 
 fn error_missing_pre<'input, V>(
@@ -1244,7 +1190,7 @@ fn error_missing_pre<'input, V>(
 where
     V: VersionBuilder<'input>,
 {
-    error_missing(Segment::PreRelease, input, index)
+    error_missing(ErrorKind::MissingPreRelease, input, index)
 }
 
 fn error_missing_build<'input, V>(
@@ -1257,20 +1203,16 @@ fn error_missing_build<'input, V>(
 where
     V: VersionBuilder<'input>,
 {
-    error_missing(Segment::Build, input, index)
+    error_missing(ErrorKind::MissingBuild, input, index)
 }
 
-fn error_missing(segment: Segment, input: &str, index: usize) -> Result<(), Error<'_>> {
+fn error_missing(error: ErrorKind, input: &str, index: usize) -> Result<(), Error<'_>> {
     let span = if index < input.len() {
         span_from(input, index)
     } else {
-        Span::new(index as u8, index as u8)
+        Span::new(index, index)
     };
-    Err(Error {
-        input,
-        error: ErrorType::Missing(segment),
-        span,
-    })
+    Err(Error { input, error, span })
 }
 
 fn error_unexpected<'input, V>(
@@ -1285,17 +1227,14 @@ where
 {
     Err(Error {
         input,
-        error: ErrorType::Unexpected,
+        error: ErrorKind::UnexpectedInput,
         span: span_from(input, index),
     })
 }
 
 #[inline]
 fn span_from(input: &str, index: usize) -> Span {
-    Span::new(
-        index as u8,
-        (index + utf8_len(input.as_bytes()[index])) as u8,
-    )
+    Span::new(index, index + utf8_len(input.as_bytes()[index]))
 }
 
 /// for benchmarks
@@ -1770,46 +1709,46 @@ mod tests {
         parse::<Version>(input)
     }
 
-    #[test_case("" => Err(ErrorSpan::new(ErrorType::Missing(Segment::Part(Part::Major)), Span::new(0, 0))); "empty input")]
-    #[test_case("  " => Err(ErrorSpan::new(ErrorType::Missing(Segment::Part(Part::Major)), Span::new(2, 2))); "whitespace input")]
-    #[test_case("." => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(0, 1))); "dot")]
-    #[test_case("🙈" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(0, 4))); "emoji")]
-    #[test_case("v" => Err(ErrorSpan::new(ErrorType::Missing(Segment::Part(Part::Major)), Span::new(1, 1))); "v")]
-    #[test_case("val" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(1, 2))); "val")]
-    #[test_case("v🙈" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(1, 5))); "v-emoji")]
-    #[test_case("1🙈" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(1, 5))); "1-emoji")]
-    #[test_case("1." => Err(ErrorSpan::new(ErrorType::Missing(Segment::Part(Part::Minor)), Span::new(2, 2))); "eoi after major")]
-    #[test_case("1. " => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(2, 3))); "whitespace after major")]
-    #[test_case("1.2." => Err(ErrorSpan::new(ErrorType::Missing(Segment::Part(Part::Patch)), Span::new(4, 4))); "eoi after minor")]
-    #[test_case("1.2. " => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(4, 5))); "whitespace after minor")]
-    #[test_case("1.2.3-" => Err(ErrorSpan::new(ErrorType::Missing(Segment::PreRelease), Span::new(6, 6))); "eoi after hyphen")]
-    #[test_case("1.2.3- " => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 7))); "whitespace after hyphen")]
-    #[test_case("1.2.3.4-" => Err(ErrorSpan::new(ErrorType::Missing(Segment::PreRelease), Span::new(8, 8))); "eoi after additional")]
-    #[test_case("1.2.3.4- " => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(8, 9))); "whitespace after additional")]
-    #[test_case("1.2.3+" => Err(ErrorSpan::new(ErrorType::Missing(Segment::Build), Span::new(6, 6))); "eoi after plus")]
-    #[test_case("1.2.3+ " => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 7))); "whitespace after plus")]
-    #[test_case("1.2.3-." => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 7))); "pre release trailing dot")]
-    #[test_case("1.2.3--" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 7))); "pre release trailing hyphen")]
-    #[test_case("1.2.3-+" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 7))); "pre release trailing plus")]
-    #[test_case("1.2.3-🙈" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 10))); "pre release trailing emoji")]
-    #[test_case("1.2.3+." => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 7))); "build trailing dot")]
-    #[test_case("1.2.3+-" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 7))); "build trailing hyphen")]
-    #[test_case("1.2.3++" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 7))); "build trailing plus")]
-    #[test_case("1.2.3-🙈" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 10))); "build trailing emoji")]
-    #[test_case("v.1.2.3" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(1, 2))); "v followed by dot")]
-    #[test_case("v-2.3.4" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(1, 2))); "v followed by hyphen")]
-    #[test_case("v+3.4.5" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(1, 2))); "v followed by plus")]
-    #[test_case("vv1.2.3" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(1, 2))); "v followed by v")]
-    #[test_case("v v1.2.3" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(1, 2))); "v followed by whitespace")]
-    #[test_case("a1.2.3" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(0, 1))); "starting with a-1")]
-    #[test_case("a.b.c" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(0, 1))); "starting with a-dot")]
-    #[test_case("1.+.0" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(2, 3))); "plus as minor")]
-    #[test_case("1.2.." => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(4, 5))); "dot as patch")]
-    #[test_case("123456789012345678901234567890" => Err(ErrorSpan::new(ErrorType::MajorNotNumeric, Span::new(0, 30))); "number overflows u64")]
-    #[test_case("1 abc" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(2, 3))); "a following parsed number 1")]
-    #[test_case("1.2.3 abc" => Err(ErrorSpan::new(ErrorType::Unexpected, Span::new(6, 7))); "a following parsed number 1.2.3")]
-    fn test_simple_errors(input: &str) -> Result<Version, ErrorSpan> {
-        parse::<Version>(input).map_err(|e| ErrorSpan::new(e.error, e.span))
+    #[test_case("" => Err((ErrorKind::MissingMajorNumber, Span::new(0, 0))); "empty input")]
+    #[test_case("  " => Err((ErrorKind::MissingMajorNumber, Span::new(2, 2))); "whitespace input")]
+    #[test_case("." => Err((ErrorKind::UnexpectedInput, Span::new(0, 1))); "dot")]
+    #[test_case("🙈" => Err((ErrorKind::UnexpectedInput, Span::new(0, 4))); "emoji")]
+    #[test_case("v" => Err((ErrorKind::MissingMajorNumber, Span::new(1, 1))); "v")]
+    #[test_case("val" => Err((ErrorKind::UnexpectedInput, Span::new(1, 2))); "val")]
+    #[test_case("v🙈" => Err((ErrorKind::UnexpectedInput, Span::new(1, 5))); "v-emoji")]
+    #[test_case("1🙈" => Err((ErrorKind::UnexpectedInput, Span::new(1, 5))); "1-emoji")]
+    #[test_case("1." => Err((ErrorKind::MissingMinorNumber, Span::new(2, 2))); "eoi after major")]
+    #[test_case("1. " => Err((ErrorKind::UnexpectedInput, Span::new(2, 3))); "whitespace after major")]
+    #[test_case("1.2." => Err((ErrorKind::MissingPatchNumber, Span::new(4, 4))); "eoi after minor")]
+    #[test_case("1.2. " => Err((ErrorKind::UnexpectedInput, Span::new(4, 5))); "whitespace after minor")]
+    #[test_case("1.2.3-" => Err((ErrorKind::MissingPreRelease, Span::new(6, 6))); "eoi after hyphen")]
+    #[test_case("1.2.3- " => Err((ErrorKind::UnexpectedInput, Span::new(6, 7))); "whitespace after hyphen")]
+    #[test_case("1.2.3.4-" => Err((ErrorKind::MissingPreRelease, Span::new(8, 8))); "eoi after additional")]
+    #[test_case("1.2.3.4- " => Err((ErrorKind::UnexpectedInput, Span::new(8, 9))); "whitespace after additional")]
+    #[test_case("1.2.3+" => Err((ErrorKind::MissingBuild, Span::new(6, 6))); "eoi after plus")]
+    #[test_case("1.2.3+ " => Err((ErrorKind::UnexpectedInput, Span::new(6, 7))); "whitespace after plus")]
+    #[test_case("1.2.3-." => Err((ErrorKind::UnexpectedInput, Span::new(6, 7))); "pre release trailing dot")]
+    #[test_case("1.2.3--" => Err((ErrorKind::UnexpectedInput, Span::new(6, 7))); "pre release trailing hyphen")]
+    #[test_case("1.2.3-+" => Err((ErrorKind::UnexpectedInput, Span::new(6, 7))); "pre release trailing plus")]
+    #[test_case("1.2.3-🙈" => Err((ErrorKind::UnexpectedInput, Span::new(6, 10))); "pre release trailing emoji")]
+    #[test_case("1.2.3+." => Err((ErrorKind::UnexpectedInput, Span::new(6, 7))); "build trailing dot")]
+    #[test_case("1.2.3+-" => Err((ErrorKind::UnexpectedInput, Span::new(6, 7))); "build trailing hyphen")]
+    #[test_case("1.2.3++" => Err((ErrorKind::UnexpectedInput, Span::new(6, 7))); "build trailing plus")]
+    #[test_case("1.2.3-🙈" => Err((ErrorKind::UnexpectedInput, Span::new(6, 10))); "build trailing emoji")]
+    #[test_case("v.1.2.3" => Err((ErrorKind::UnexpectedInput, Span::new(1, 2))); "v followed by dot")]
+    #[test_case("v-2.3.4" => Err((ErrorKind::UnexpectedInput, Span::new(1, 2))); "v followed by hyphen")]
+    #[test_case("v+3.4.5" => Err((ErrorKind::UnexpectedInput, Span::new(1, 2))); "v followed by plus")]
+    #[test_case("vv1.2.3" => Err((ErrorKind::UnexpectedInput, Span::new(1, 2))); "v followed by v")]
+    #[test_case("v v1.2.3" => Err((ErrorKind::UnexpectedInput, Span::new(1, 2))); "v followed by whitespace")]
+    #[test_case("a1.2.3" => Err((ErrorKind::UnexpectedInput, Span::new(0, 1))); "starting with a-1")]
+    #[test_case("a.b.c" => Err((ErrorKind::UnexpectedInput, Span::new(0, 1))); "starting with a-dot")]
+    #[test_case("1.+.0" => Err((ErrorKind::UnexpectedInput, Span::new(2, 3))); "plus as minor")]
+    #[test_case("1.2.." => Err((ErrorKind::UnexpectedInput, Span::new(4, 5))); "dot as patch")]
+    #[test_case("123456789012345678901234567890" => Err((ErrorKind::MajorNotANumber, Span::new(0, 30))); "number overflows u64")]
+    #[test_case("1 abc" => Err((ErrorKind::UnexpectedInput, Span::new(2, 3))); "a following parsed number 1")]
+    #[test_case("1.2.3 abc" => Err((ErrorKind::UnexpectedInput, Span::new(6, 7))); "a following parsed number 1.2.3")]
+    fn test_simple_errors(input: &str) -> Result<Version, (ErrorKind, Span)> {
+        parse::<Version>(input).map_err(|e| (e.error, e.span))
     }
 
     #[test_case("" => r#"Could not parse the major identifier: No input
