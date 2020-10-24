@@ -698,7 +698,7 @@ const fn utf8_len(input: u8) -> usize {
 
 const STATES: usize = 15;
 
-#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 #[repr(u8)]
 enum State {
     ExpectMajor,
@@ -726,7 +726,7 @@ impl Display for State {
 
 const CLASSES: usize = 9;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[repr(u8)]
 enum Class {
     Number,
@@ -740,9 +740,25 @@ enum Class {
     Unexpected,
 }
 
+impl Display for Class {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            Class::Number => f.pad("[0-9]"),
+            Class::Alpha => f.pad("[a-zA-Z]"),
+            Class::Dot => f.pad("[.]"),
+            Class::Hyphen => f.pad("[-]"),
+            Class::Plus => f.pad("[+]"),
+            Class::V => f.pad("[vV]"),
+            Class::Whitespace => f.pad("<whitespace>"),
+            Class::EndOfInput => f.pad("EOI"),
+            Class::Unexpected => f.pad("<otherwise>"),
+        }
+    }
+}
+
 const EMITS: usize = 14;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
 enum Emit {
     None,
