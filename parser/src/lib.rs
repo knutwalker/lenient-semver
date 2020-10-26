@@ -686,18 +686,42 @@ where
     Ok(v.build())
 }
 
-/// This constant maps the first 5 bits of a code unit to the one less than the length in utf-8.
-/// There are 32 possible values for the first 5 bits. The length in utf-8 is in [1, 4].
-/// Subtracting 1 gives us [0, 3], which can be encoded in 2 bits.
-/// The utf-8 length for a given byte can be determined by looking at the first 5 bits and all the
-/// lengths are packed into this constant.
+// This constant maps the first 5 bits of a code unit to the one less than the length in utf-8.
+// There are 32 possible values for the first 5 bits. The length in utf-8 is in [1, 4].
+// Subtracting 1 gives us [0, 3], which can be encoded in 2 bits.
+// The utf-8 length for a given byte can be determined by looking at the first 5 bits and all the
+// lengths are packed into this constant.
+//
+// 1. `byte >> 3`   produces to first 5 bits: `xxxxx...` -> `000xxxxx`
+// 2. `_ << 1`      multiply by 2 as the length is encoded with 2 bits.
+//                  We now have a value that is in [0, 63]
+// 3. `MAGIC >> _`  selects the cooresponding length "entry" by shifting the MAGIC by the value we got in 2.
+// 4. `_ & 0b11`    retains only the last two bits
+// 5. `_ + 1`       returns the actual length in [1, 4]
+//
+// in UTF-8, the length is either 1 byte for any ASCII char (leading 0)
+// or by the number of leading 1:
+//   1 byte  => `0xxxx|...`  (1.)=> `0000xxxx`  (2.)=> `000xxxx0`
+//   2 bytes => `110xx|...`  (1.)=> `000110xx`  (2.)=> `00110xx0`
+//   3 bytes => `1110x|...`  (1.)=> `0001110x`  (2.)=> `001110x0`
+//   4 bytes => `11110|...`  (1.)=> `00011110`  (2.)=> `00111100`
+//
+// There is only value for 4 bytes length, which is `00111100`, or 60.
+// For 3 bytes length, there are two possible values, `00111000` and `00111010`, or 56 and 58.
+// For 2 bytes length, there are four possible values, the rest falls into the 1 byte length region.
+//
+// There are bytes that start with `10xxx|...`. Those are continuation bytes and not valid for a first byte.
+// We do map them to a single byte length. While this is incorrect, we will slice on the values produces by
+// the following method and if we got a continuation byte, we will panic.
+//
+//                   ~4 ~~~3 ~~~~~~~~2                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~1
+const MAGIC: u64 = 0b11_1010_0101_0101_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000;
+
+/// Get the length of a utf8-char by looking at it's leading byte without branching.
 ///
-/// 1. `byte >> 3`   produces to first 5 bits: `000xxxxx`
-/// 2. `_ << 1`      multiply by 2 as the length is encoded with 2 bits
-/// 3. `MAGIC >> _`  selects the cooresponding length "entry"
-/// 4. `_ & 0b11`    retains only the last two bits
-/// 5. `_ + 1`       returns the actual length in [1, 4]
-const MAGIC: u64 = 0x3A55000000000000;
+/// This is not a general purpose method, as it will return incorrect results when called
+/// with continuation bytes. The way this method is called, the parser guarantees that this
+/// does not happen.
 const fn utf8_len(input: u8) -> usize {
     ((MAGIC >> ((input >> 3) << 1)) & 0b11) as usize + 1
 }
