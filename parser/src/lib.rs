@@ -491,8 +491,8 @@ impl<'input> Error<'input> {
             ErrorKind::MissingBuild => {
                 String::from("Could not parse the build identifier: No input")
             }
-            ErrorKind::MajorNotANumber => format!(
-                "Could not parse the major identifier: `{}` is not a number",
+            ErrorKind::NumberOverflow => format!(
+                "The value `{}` overflows the range of an u64",
                 self.erroneous_input()
             ),
             ErrorKind::UnexpectedInput => format!("Unexpected `{}`", self.erroneous_input()),
@@ -595,8 +595,8 @@ pub enum ErrorKind {
     MissingPreRelease,
     /// Expected to parse the build identifier part, but nothing was found
     MissingBuild,
-    /// Trying to parse the major number part, but the input was not a number
-    MajorNotANumber,
+    /// Trying to parse a number part, but the input overflowed a u64
+    NumberOverflow,
     /// Found an unexpected input
     UnexpectedInput,
 }
@@ -1031,7 +1031,7 @@ where
             v.set_major(num);
             Ok(())
         }
-        _ => Err(Error::new(input, ErrorKind::MajorNotANumber, *start, index)),
+        _ => Err(Error::new(input, ErrorKind::NumberOverflow, *start, index)),
     }
 }
 
@@ -1744,7 +1744,7 @@ mod tests {
     #[test_case("a.b.c" => Err((ErrorKind::UnexpectedInput, Span::new(0, 1))); "starting with a-dot")]
     #[test_case("1.+.0" => Err((ErrorKind::UnexpectedInput, Span::new(2, 3))); "plus as minor")]
     #[test_case("1.2.." => Err((ErrorKind::UnexpectedInput, Span::new(4, 5))); "dot as patch")]
-    #[test_case("123456789012345678901234567890" => Err((ErrorKind::MajorNotANumber, Span::new(0, 30))); "number overflows u64")]
+    #[test_case("123456789012345678901234567890" => Err((ErrorKind::NumberOverflow, Span::new(0, 30))); "number overflows u64")]
     #[test_case("1 abc" => Err((ErrorKind::UnexpectedInput, Span::new(2, 3))); "a following parsed number 1")]
     #[test_case("1.2.3 abc" => Err((ErrorKind::UnexpectedInput, Span::new(6, 7))); "a following parsed number 1.2.3")]
     fn test_simple_errors(input: &str) -> Result<Version, (ErrorKind, Span)> {
@@ -1779,7 +1779,7 @@ mod tests {
 |    1.2..
 |    ~~~~^
 "#)]
-    #[test_case("123456789012345678901234567890" => r#"Could not parse the major identifier: `123456789012345678901234567890` is not a number
+    #[test_case("123456789012345678901234567890" => r#"The value `123456789012345678901234567890` overflows the range of an u64
 |    123456789012345678901234567890
 |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 "#)]
