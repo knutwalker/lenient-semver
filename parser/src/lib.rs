@@ -793,8 +793,12 @@ const fn dfa_index(s: State, c: Class) -> u8 {
 }
 
 macro_rules! dfa {
-        ($transitions:ident: $($cls:ident @ $state:ident -> $target:ident),+,) => {
-            $($transitions[dfa_index(State::$state, Class::$cls) as usize] = State::$target;)+
+        ($transitions:ident: $($($cls:ident)|+ @ $state:ident -> $target:ident),+,) => {
+            $(
+                $(
+                    $transitions[dfa_index(State::$state, Class::$cls) as usize] = State::$target;
+                )+
+            )+
         };
     }
 
@@ -813,163 +817,113 @@ type Dfa = ([State; STATES * CLASSES], [Emit; STATES * CLASSES]);
 const fn dfa() -> Dfa {
     let mut transitions = [State::Error; STATES * CLASSES];
     dfa!(transitions:
+                 Whitespace @ ExpectMajor  -> ExpectMajor,
+                          V @ ExpectMajor  -> RequireMajor,
+                     Number @ ExpectMajor  -> ParseMajor,
 
-    Whitespace @ ExpectMajor  -> ExpectMajor,
-             V @ ExpectMajor  -> RequireMajor,
-        Number @ ExpectMajor  -> ParseMajor,
+                     Number @ RequireMajor -> ParseMajor,
 
-        Number @ RequireMajor -> ParseMajor,
+    Whitespace | EndOfInput @ ParseMajor   -> EndOfInput,
+                     Number @ ParseMajor   -> ParseMajor,
+                        Dot @ ParseMajor   -> ExpectMinor,
+                     Hyphen @ ParseMajor   -> ExpectPre,
+                       Plus @ ParseMajor   -> ExpectBuild,
 
-    EndOfInput @ ParseMajor   -> EndOfInput,
-    Whitespace @ ParseMajor   -> EndOfInput,
-        Number @ ParseMajor   -> ParseMajor,
-           Dot @ ParseMajor   -> ExpectMinor,
-        Hyphen @ ParseMajor   -> ExpectPre,
-          Plus @ ParseMajor   -> ExpectBuild,
+                     Number @ ExpectMinor  -> ParseMinor,
+                  Alpha | V @ ExpectMinor  -> ParsePre,
 
+    Whitespace | EndOfInput @ ParseMinor   -> EndOfInput,
+                     Number @ ParseMinor   -> ParseMinor,
+                  Alpha | V @ ParseMinor   -> ParsePre,
+                        Dot @ ParseMinor   -> ExpectPatch,
+                     Hyphen @ ParseMinor   -> ExpectPre,
+                       Plus @ ParseMinor   -> ExpectBuild,
 
-        Number @ ExpectMinor  -> ParseMinor,
-             V @ ExpectMinor  -> ParsePre,
-         Alpha @ ExpectMinor  -> ParsePre,
+                     Number @ ExpectPatch  -> ParsePatch,
+                  Alpha | V @ ExpectPatch  -> ParsePre,
 
-    EndOfInput @ ParseMinor   -> EndOfInput,
-    Whitespace @ ParseMinor   -> EndOfInput,
-        Number @ ParseMinor   -> ParseMinor,
-             V @ ParseMinor   -> ParsePre,
-         Alpha @ ParseMinor   -> ParsePre,
-           Dot @ ParseMinor   -> ExpectPatch,
-        Hyphen @ ParseMinor   -> ExpectPre,
-          Plus @ ParseMinor   -> ExpectBuild,
+    Whitespace | EndOfInput @ ParsePatch   -> EndOfInput,
+                     Number @ ParsePatch   -> ParsePatch,
+                  Alpha | V @ ParsePatch   -> ParsePre,
+                        Dot @ ParsePatch   -> ExpectAdd,
+                     Hyphen @ ParsePatch   -> ExpectPre,
+                       Plus @ ParsePatch   -> ExpectBuild,
 
+                     Number @ ExpectAdd    -> ParseAdd,
+                  Alpha | V @ ExpectAdd    -> ParsePre,
 
-        Number @ ExpectPatch  -> ParsePatch,
-             V @ ExpectPatch  -> ParsePre,
-         Alpha @ ExpectPatch  -> ParsePre,
+    Whitespace | EndOfInput @ ParseAdd     -> EndOfInput,
+                     Number @ ParseAdd     -> ParseAdd,
+                  Alpha | V @ ParseAdd     -> ParsePre,
+                        Dot @ ParseAdd     -> ExpectAdd,
+                     Hyphen @ ParseAdd     -> ExpectPre,
+                       Plus @ ParseAdd     -> ExpectBuild,
 
-    EndOfInput @ ParsePatch   -> EndOfInput,
-    Whitespace @ ParsePatch   -> EndOfInput,
-        Number @ ParsePatch   -> ParsePatch,
-             V @ ParsePatch   -> ParsePre,
-         Alpha @ ParsePatch   -> ParsePre,
-           Dot @ ParsePatch   -> ExpectAdd,
-        Hyphen @ ParsePatch   -> ExpectPre,
-          Plus @ ParsePatch   -> ExpectBuild,
+         Number | Alpha | V @ ExpectPre    -> ParsePre,
 
+    Whitespace | EndOfInput @ ParsePre     -> EndOfInput,
+         Number | Alpha | V @ ParsePre     -> ParsePre,
+               Dot | Hyphen @ ParsePre     -> ExpectPre,
+                       Plus @ ParsePre     -> ExpectBuild,
 
-        Number @ ExpectAdd    -> ParseAdd,
-             V @ ExpectAdd    -> ParsePre,
-         Alpha @ ExpectAdd    -> ParsePre,
+         Number | Alpha | V @ ExpectBuild  -> ParseBuild,
 
-    EndOfInput @ ParseAdd     -> EndOfInput,
-    Whitespace @ ParseAdd     -> EndOfInput,
-        Number @ ParseAdd     -> ParseAdd,
-             V @ ParseAdd     -> ParsePre,
-         Alpha @ ParseAdd     -> ParsePre,
-           Dot @ ParseAdd     -> ExpectAdd,
-        Hyphen @ ParseAdd     -> ExpectPre,
-          Plus @ ParseAdd     -> ExpectBuild,
+    Whitespace | EndOfInput @ ParseBuild   -> EndOfInput,
+         Number | Alpha | V @ ParseBuild   -> ParseBuild,
+               Dot | Hyphen @ ParseBuild   -> ExpectBuild,
 
-
-        Number @ ExpectPre    -> ParsePre,
-             V @ ExpectPre    -> ParsePre,
-         Alpha @ ExpectPre    -> ParsePre,
-
-    EndOfInput @ ParsePre     -> EndOfInput,
-    Whitespace @ ParsePre     -> EndOfInput,
-        Number @ ParsePre     -> ParsePre,
-             V @ ParsePre     -> ParsePre,
-         Alpha @ ParsePre     -> ParsePre,
-           Dot @ ParsePre     -> ExpectPre,
-        Hyphen @ ParsePre     -> ExpectPre,
-          Plus @ ParsePre     -> ExpectBuild,
-
-
-        Number @ ExpectBuild  -> ParseBuild,
-             V @ ExpectBuild  -> ParseBuild,
-         Alpha @ ExpectBuild  -> ParseBuild,
-
-    EndOfInput @ ParseBuild   -> EndOfInput,
-    Whitespace @ ParseBuild   -> EndOfInput,
-        Number @ ParseBuild   -> ParseBuild,
-             V @ ParseBuild   -> ParseBuild,
-         Alpha @ ParseBuild   -> ParseBuild,
-           Dot @ ParseBuild   -> ExpectBuild,
-        Hyphen @ ParseBuild   -> ExpectBuild,
-
-
-    EndOfInput @ EndOfInput   -> EndOfInput,
-    Whitespace @ EndOfInput   -> EndOfInput,
+    Whitespace | EndOfInput @ EndOfInput   -> EndOfInput,
     );
 
     let mut emits = [Emit::None; STATES * CLASSES];
     emit!(emits:
-        Number @ ExpectMajor  -> SaveStart,
-    EndOfInput @ ExpectMajor  -> ErrorMissingMajor,
-    Alpha | Dot | Hyphen | Plus | Unexpected
-               @ ExpectMajor  -> ErrorUnexpected,
+                                                       Number @ ExpectMajor  -> SaveStart,
+                                                   EndOfInput @ ExpectMajor  -> ErrorMissingMajor,
+                     Alpha | Dot | Hyphen | Plus | Unexpected @ ExpectMajor  -> ErrorUnexpected,
 
-        Number @ RequireMajor -> SaveStart,
-    EndOfInput @ RequireMajor -> ErrorMissingMajor,
-    Whitespace | Alpha | V | Dot | Hyphen | Plus | Unexpected
-               @ RequireMajor -> ErrorUnexpected,
+                                                       Number @ RequireMajor -> SaveStart,
+                                                   EndOfInput @ RequireMajor -> ErrorMissingMajor,
+    Whitespace | Alpha | V | Dot | Hyphen | Plus | Unexpected @ RequireMajor -> ErrorUnexpected,
 
-    Whitespace | EndOfInput | Dot | Hyphen | Plus
-               @ ParseMajor   -> Major,
-    Alpha | V | Unexpected
-               @ ParseMajor   -> ErrorUnexpected,
+                Whitespace | EndOfInput | Dot | Hyphen | Plus @ ParseMajor   -> Major,
+                                       Alpha | V | Unexpected @ ParseMajor   -> ErrorUnexpected,
 
-    Number | V | Alpha
-               @ ExpectMinor  -> SaveStart,
-    EndOfInput @ ExpectMinor  -> ErrorMissingMinor,
-    Whitespace | Dot | Hyphen | Plus | Unexpected
-               @ ExpectMinor  -> ErrorUnexpected,
+                                           Number | V | Alpha @ ExpectMinor  -> SaveStart,
+                                                   EndOfInput @ ExpectMinor  -> ErrorMissingMinor,
+                Whitespace | Dot | Hyphen | Plus | Unexpected @ ExpectMinor  -> ErrorUnexpected,
 
-    Whitespace | EndOfInput | Dot | Hyphen | Plus
-               @ ParseMinor   -> Minor,
-    Unexpected @ ParseMinor   -> ErrorUnexpected,
+                Whitespace | EndOfInput | Dot | Hyphen | Plus @ ParseMinor   -> Minor,
+                                                   Unexpected @ ParseMinor   -> ErrorUnexpected,
 
-    Number | V | Alpha
-               @ ExpectPatch  -> SaveStart,
-    EndOfInput @ ExpectPatch  -> ErrorMissingPatch,
-    Whitespace | Dot | Hyphen | Plus | Unexpected
-               @ ExpectPatch  -> ErrorUnexpected,
+                                           Number | V | Alpha @ ExpectPatch  -> SaveStart,
+                                                   EndOfInput @ ExpectPatch  -> ErrorMissingPatch,
+                Whitespace | Dot | Hyphen | Plus | Unexpected @ ExpectPatch  -> ErrorUnexpected,
 
-    Whitespace | EndOfInput | Dot | Hyphen | Plus
-               @ ParsePatch   -> Patch,
-    Unexpected @ ParsePatch   -> ErrorUnexpected,
+                Whitespace | EndOfInput | Dot | Hyphen | Plus @ ParsePatch   -> Patch,
+                                                   Unexpected @ ParsePatch   -> ErrorUnexpected,
 
-    Number | V | Alpha
-               @ ExpectAdd    -> SaveStart,
-    EndOfInput @ ExpectAdd    -> ErrorMissingPre,
-    Whitespace | Dot | Hyphen | Plus | Unexpected
-               @ ExpectAdd    -> ErrorUnexpected,
+                                           Number | V | Alpha @ ExpectAdd    -> SaveStart,
+                                                   EndOfInput @ ExpectAdd    -> ErrorMissingPre,
+                Whitespace | Dot | Hyphen | Plus | Unexpected @ ExpectAdd    -> ErrorUnexpected,
 
-    Whitespace | EndOfInput | Dot | Hyphen | Plus
-               @ ParseAdd     -> Add,
-    Unexpected @ ParseAdd     -> ErrorUnexpected,
+                Whitespace | EndOfInput | Dot | Hyphen | Plus @ ParseAdd     -> Add,
+                                                   Unexpected @ ParseAdd     -> ErrorUnexpected,
 
-    Number | V | Alpha
-               @ ExpectPre    -> SaveStart,
-    EndOfInput @ ExpectPre    -> ErrorMissingPre,
-    Whitespace | Dot | Hyphen | Plus | Unexpected
-               @ ExpectPre    -> ErrorUnexpected,
+                                           Number | V | Alpha @ ExpectPre    -> SaveStart,
+                                                   EndOfInput @ ExpectPre    -> ErrorMissingPre,
+                Whitespace | Dot | Hyphen | Plus | Unexpected @ ExpectPre    -> ErrorUnexpected,
 
-    Whitespace | EndOfInput | Dot | Hyphen | Plus
-               @ ParsePre     -> Pre,
-    Unexpected @ ParsePre     -> ErrorUnexpected,
+                Whitespace | EndOfInput | Dot | Hyphen | Plus @ ParsePre     -> Pre,
+                                                   Unexpected @ ParsePre     -> ErrorUnexpected,
 
-    Number | V | Alpha
-               @ ExpectBuild  -> SaveStart,
-    EndOfInput @ ExpectBuild  -> ErrorMissingBuild,
-    Whitespace | Dot | Hyphen | Plus | Unexpected
-               @ ExpectBuild  -> ErrorUnexpected,
+                                           Number | V | Alpha @ ExpectBuild  -> SaveStart,
+                                                   EndOfInput @ ExpectBuild  -> ErrorMissingBuild,
+                Whitespace | Dot | Hyphen | Plus | Unexpected @ ExpectBuild  -> ErrorUnexpected,
 
-    Whitespace | EndOfInput | Dot | Hyphen | Plus
-               @ ParseBuild   -> Build,
-    Unexpected @ ParseBuild   -> ErrorUnexpected,
+                Whitespace | EndOfInput | Dot | Hyphen | Plus @ ParseBuild   -> Build,
+                                                   Unexpected @ ParseBuild   -> ErrorUnexpected,
 
-    Alpha | V | Number | Dot | Hyphen | Plus | Unexpected
-               @ EndOfInput   -> ErrorUnexpected,
+        Alpha | V | Number | Dot | Hyphen | Plus | Unexpected @ EndOfInput   -> ErrorUnexpected,
     );
 
     (transitions, emits)
