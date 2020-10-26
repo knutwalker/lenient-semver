@@ -1554,7 +1554,7 @@ pub mod strict {
 }
 
 /// for benchmarks
-#[cfg(feature = "generator")]
+#[cfg(all(feature = "generator", feature = "strict"))]
 pub mod generator {
     #[cfg(test)]
     use std::collections::HashMap;
@@ -1572,7 +1572,7 @@ pub mod generator {
             Class::Plus,
             Class::V,
         ];
-        let dfa = dfa();
+        let dfa = strict::strict_dfa();
 
         let mut seed = if seed == 0 { 0xBAD_5EED } else { seed };
         let mut state = State::ExpectMajor;
