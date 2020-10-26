@@ -1586,15 +1586,13 @@ pub mod generator {
     use super::*;
 
     /// for benchmarks
-    // woudl be const fn but need to inc #[const_eval_limit]
-    pub fn generate_20000(seed: u32) -> [u8; 20_000] {
+    pub fn generate_20000(seed: u32) -> String {
         let classes = [
             Class::Number,
             Class::Alpha,
             Class::Dot,
             Class::Hyphen,
             Class::Plus,
-            Class::V,
         ];
         let dfa = strict::strict_dfa();
 
@@ -1602,15 +1600,14 @@ pub mod generator {
         let mut state = State::ExpectMajor;
         let mut candidates = [Class::Whitespace; 6];
 
-        let mut result = [0x20_u8; 20_000];
+        let mut result = Vec::with_capacity(20_000);
         let size = 20_000_usize;
-        let mut index = 0_usize;
-        while index < size {
+        loop {
             let mut cls = 0;
             let mut num_candidates = 0;
             while cls < classes.len() {
                 let possible_state = transition(&dfa, state, classes[cls]).0;
-                if possible_state as u8 != State::Error as u8 {
+                if possible_state != State::Error {
                     candidates[num_candidates] = classes[cls];
                     num_candidates += 1;
                 }
@@ -1621,11 +1618,16 @@ pub mod generator {
             let (new_seed, ch) = char_for(new_seed, candidate);
             seed = new_seed;
             state = transition(&dfa, state, candidate).0;
-            result[index] = ch;
-            index += 1;
+            result.push(ch);
+
+            if result.len() >= size {
+                if transition(&dfa, state, Class::EndOfInput).0 != State::Error {
+                    break;
+                }
+            }
         }
 
-        result
+        String::from_utf8(result).unwrap()
     }
 
     const fn char_for(seed: u32, class: Class) -> (u32, u8) {
@@ -1636,19 +1638,19 @@ pub mod generator {
             }
             Class::Alpha => {
                 let (seed, use_upper) = roll(seed, 2);
-                let (seed, number) = roll(seed, 26);
+                // don't generate a v as v0.2 chokes on that
+                let (seed, mut number) = roll(seed, 25);
+                // if `v` was selected (21), shift result by 1
+                if number >= 21 {
+                    number += 1;
+                }
                 let start = if use_upper == 0 { b'a' } else { b'A' };
                 (seed, start + number as u8)
             }
             Class::Dot => (seed, b'.'),
             Class::Hyphen => (seed, b'-'),
             Class::Plus => (seed, b'+'),
-            Class::V => {
-                let (seed, use_upper) = roll(seed, 2);
-                let value = if use_upper == 0 { b'v' } else { b'V' };
-                (seed, value)
-            }
-            Class::Whitespace | Class::EndOfInput | Class::Unexpected => (seed, b' '),
+            Class::Whitespace | Class::EndOfInput | Class::Unexpected | Class::V => (seed, b' '),
         }
     }
 
