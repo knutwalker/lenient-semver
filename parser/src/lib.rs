@@ -96,42 +96,7 @@ pub fn parse<'input, V>(input: &'input str) -> Result<V::Out, Error<'input>>
 where
     V: VersionBuilder<'input>,
 {
-    let actions: [for<'local> fn(
-        &'input str,
-        &'local mut V,
-        &'local mut usize,
-        &'local mut State,
-        usize,
-    ) -> Result<(), Error<'input>>; EMITS] = [
-        do_nothing,
-        save_start,
-        parse_major,
-        parse_minor,
-        parse_patch,
-        parse_add,
-        parse_pre_release,
-        parse_build,
-        error_missing_major,
-        error_missing_minor,
-        error_missing_patch,
-        error_missing_pre,
-        error_missing_build,
-        error_unexpected,
-    ];
-    let mut start = 0_usize;
-    let mut v = V::new();
-    let mut state = State::ExpectMajor;
-
-    let mut_v = &mut v;
-    let mut_s = &mut start;
-    for (index, b) in input.bytes().enumerate() {
-        let (mut new_state, emits) = transduce(&LOOKUP, &DFA, state, b);
-        (actions[emits as u8 as usize])(input, mut_v, mut_s, &mut new_state, index)?;
-        state = new_state;
-    }
-    let (mut new_state, emits) = transition(&DFA, state, Class::EndOfInput);
-    (actions[emits as u8 as usize])(input, mut_v, mut_s, &mut new_state, input.len())?;
-    Ok(v.build())
+    parse_internal::<V>(input, &DFA, &LOOKUP)
 }
 
 /// Trait to abstract over version building.
@@ -667,6 +632,60 @@ fn eq_bytes_ignore_case(left: &str, right: &str) -> bool {
         .all(|(c1, c2)| c1 == c2)
 }
 
+#[inline]
+fn parse_internal<'input, V>(
+    input: &'input str,
+    dfa: &Dfa,
+    lookup: &Lookup,
+) -> Result<V::Out, Error<'input>>
+where
+    V: VersionBuilder<'input>,
+{
+    let actions: Actions<'input, V> = [
+        do_nothing,
+        save_start,
+        parse_major,
+        parse_minor,
+        parse_patch,
+        parse_add,
+        parse_pre_release,
+        parse_build,
+        error_missing_major,
+        error_missing_minor,
+        error_missing_patch,
+        error_missing_pre,
+        error_missing_build,
+        error_unexpected,
+    ];
+    parse_internal_with(input, dfa, lookup, actions)
+}
+
+#[inline]
+fn parse_internal_with<'input, V>(
+    input: &'input str,
+    dfa: &Dfa,
+    lookup: &Lookup,
+    actions: Actions<'input, V>,
+) -> Result<V::Out, Error<'input>>
+where
+    V: VersionBuilder<'input>,
+{
+    let mut start = 0_usize;
+    let mut v = V::new();
+    let mut state = State::ExpectMajor;
+
+    let mut_v = &mut v;
+    let mut_s = &mut start;
+    for (index, b) in input.bytes().enumerate() {
+        let (mut new_state, emits) = transduce(lookup, dfa, state, b);
+        (actions[emits as u8 as usize])(input, mut_v, mut_s, &mut new_state, index)?;
+        state = new_state;
+    }
+    let (mut new_state, emits) = transition(dfa, state, Class::EndOfInput);
+    (actions[emits as u8 as usize])(input, mut_v, mut_s, &mut new_state, input.len())?;
+    Ok(v.build())
+}
+
 /// This constant maps the first 5 bits of a code unit to the one less than the length in utf-8.
 /// There are 32 possible values for the first 5 bits. The length in utf-8 is in [1, 4].
 /// Subtracting 1 gives us [0, 3], which can be encoded in 2 bits.
@@ -943,6 +962,14 @@ const fn transition(dfa: &Dfa, s: State, class: Class) -> (State, Emit) {
     (dfa.0[index], dfa.1[index])
 }
 
+type Actions<'input, V> = [for<'local> fn(
+    &'input str,
+    &'local mut V,
+    &'local mut usize,
+    &'local mut State,
+    usize,
+) -> Result<(), Error<'input>>; EMITS];
+
 fn do_nothing<'input, V>(
     _input: &'input str,
     _v: &mut V,
@@ -1012,6 +1039,27 @@ where
     Ok(())
 }
 
+#[cfg(feature = "strict")]
+fn parse_minor_as_num<'input, V>(
+    input: &'input str,
+    v: &mut V,
+    start: &mut usize,
+    _new_state: &mut State,
+    index: usize,
+) -> Result<(), Error<'input>>
+where
+    V: VersionBuilder<'input>,
+{
+    let segment = &input[*start..index];
+    match segment.parse::<u64>() {
+        Ok(num) => {
+            v.set_minor(num);
+            Ok(())
+        }
+        _ => Err(Error::new(input, ErrorKind::NumberOverflow, *start, index)),
+    }
+}
+
 fn parse_patch<'input, V>(
     input: &'input str,
     v: &mut V,
@@ -1033,6 +1081,27 @@ where
         }
     };
     Ok(())
+}
+
+#[cfg(feature = "strict")]
+fn parse_patch_as_num<'input, V>(
+    input: &'input str,
+    v: &mut V,
+    start: &mut usize,
+    _new_state: &mut State,
+    index: usize,
+) -> Result<(), Error<'input>>
+where
+    V: VersionBuilder<'input>,
+{
+    let segment = &input[*start..index];
+    match segment.parse::<u64>() {
+        Ok(num) => {
+            v.set_patch(num);
+            Ok(())
+        }
+        _ => Err(Error::new(input, ErrorKind::NumberOverflow, *start, index)),
+    }
 }
 
 fn parse_add<'input, V>(
@@ -1189,6 +1258,299 @@ where
 #[inline]
 fn span_from(input: &str, index: usize) -> Span {
     Span::new(index, index + utf8_len(input.as_bytes()[index]))
+}
+
+/// A strict version of the parser that follows the spec more closely. It is not 100% spec compliant, but it's closer.
+#[cfg(feature = "strict")]
+pub mod strict {
+    use super::*;
+
+    /// Parse a string slice into a Version, using strict semantics.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use semver::Version;
+    ///
+    /// let version = lenient_semver_parser::strict::parse::<Version>("1.2.3");
+    /// assert_eq!(version, Ok(Version::new(1, 2, 3)));
+    ///
+    /// // examples of a version that wpuld be accepted by the regular parser,
+    /// // but not by the strict one.
+    /// assert!(lenient_semver_parser::strict::parse::<Version>("1.2.M1").is_err());
+    ///
+    /// assert!(lenient_semver_parser::strict::parse::<Version>("1").is_err());
+    ///
+    /// assert!(lenient_semver_parser::strict::parse::<Version>("1.2.3.Final").is_err());
+    ///
+    /// assert!(lenient_semver_parser::strict::parse::<Version>("1.2.3.4.5").is_err());
+    ///
+    /// assert!(lenient_semver_parser::strict::parse::<Version>("v1.2.3").is_err());
+    ///
+    /// assert!(lenient_semver_parser::strict::parse::<Version>("1.2.9876543210987654321098765432109876543210").is_err());
+    /// ```
+    pub fn parse<'input, V>(input: &'input str) -> Result<V::Out, Error<'input>>
+    where
+        V: VersionBuilder<'input>,
+    {
+        let actions: Actions<'input, V> = [
+            do_nothing,
+            save_start,
+            parse_major,
+            parse_minor_as_num,
+            parse_patch_as_num,
+            parse_add,
+            parse_pre_release,
+            parse_build,
+            error_missing_major,
+            error_missing_minor,
+            error_missing_patch,
+            error_missing_pre,
+            error_missing_build,
+            error_unexpected,
+        ];
+        parse_internal_with(input, &STRICT_DFA, &LOOKUP, actions)
+    }
+
+    static STRICT_DFA: Dfa = strict_dfa();
+
+    pub(super) const fn strict_dfa() -> Dfa {
+        let mut transitions = [State::Error; STATES * CLASSES];
+        dfa!(transitions:
+
+                     Whitespace @ ExpectMajor  -> ExpectMajor,
+                         Number @ ExpectMajor  -> ParseMajor,
+
+                         Number @ ParseMajor   -> ParseMajor,
+                            Dot @ ParseMajor   -> ExpectMinor,
+
+                         Number @ ExpectMinor  -> ParseMinor,
+
+                         Number @ ParseMinor   -> ParseMinor,
+                            Dot @ ParseMinor   -> ExpectPatch,
+
+                         Number @ ExpectPatch  -> ParsePatch,
+
+        Whitespace | EndOfInput @ ParsePatch   -> EndOfInput,
+                         Number @ ParsePatch   -> ParsePatch,
+                         Hyphen @ ParsePatch   -> ExpectPre,
+                           Plus @ ParsePatch   -> ExpectBuild,
+
+                         Number @ ExpectPre    -> ParsePre,
+                              V @ ExpectPre    -> ParsePre,
+                          Alpha @ ExpectPre    -> ParsePre,
+
+        Whitespace | EndOfInput @ ParsePre     -> EndOfInput,
+             Number | Alpha | V @ ParsePre     -> ParsePre,
+                            Dot @ ParsePre     -> ExpectPre,
+                           Plus @ ParsePre     -> ExpectBuild,
+
+             Number | Alpha | V @ ExpectBuild  -> ParseBuild,
+
+        Whitespace | EndOfInput @ ParseBuild   -> EndOfInput,
+             Number | Alpha | V @ ParseBuild   -> ParseBuild,
+                            Dot @ ParseBuild   -> ExpectBuild,
+
+        Whitespace | EndOfInput @ EndOfInput   -> EndOfInput,
+        );
+
+        let mut emits = [Emit::None; STATES * CLASSES];
+        emit!(emits:
+                                                           Number @ ExpectMajor  -> SaveStart,
+                                                       EndOfInput @ ExpectMajor  -> ErrorMissingMajor,
+                     Alpha | V | Dot | Hyphen | Plus | Unexpected @ ExpectMajor  -> ErrorUnexpected,
+
+                                                              Dot @ ParseMajor   -> Major,
+                                                       EndOfInput @ ParseMajor   -> ErrorMissingMinor,
+              Alpha | V | Hyphen | Plus | Whitespace | Unexpected @ ParseMajor   -> ErrorUnexpected,
+
+                                                           Number @ ExpectMinor  -> SaveStart,
+                                                       EndOfInput @ ExpectMinor  -> ErrorMissingMinor,
+        Alpha | V | Dot | Hyphen | Plus | Whitespace | Unexpected @ ExpectMinor  -> ErrorUnexpected,
+
+                                                              Dot @ ParseMinor   -> Minor,
+                                                       EndOfInput @ ParseMinor   -> ErrorMissingPatch,
+              Alpha | V | Hyphen | Plus | Whitespace | Unexpected @ ParseMinor   -> ErrorUnexpected,
+
+                                                           Number @ ExpectPatch  -> SaveStart,
+                                                       EndOfInput @ ExpectPatch  -> ErrorMissingPatch,
+        Alpha | V | Dot | Hyphen | Plus | Whitespace | Unexpected @ ExpectPatch  -> ErrorUnexpected,
+
+                          Hyphen | Plus | Whitespace | EndOfInput @ ParsePatch   -> Patch,
+                                     Alpha | V | Dot | Unexpected @ ParsePatch   -> ErrorUnexpected,
+
+                                               Number | V | Alpha @ ExpectPre    -> SaveStart,
+                                                       EndOfInput @ ExpectPre    -> ErrorMissingPre,
+                    Dot | Hyphen | Plus | Whitespace | Unexpected @ ExpectPre    -> ErrorUnexpected,
+
+                             Dot | Plus | Whitespace | EndOfInput @ ParsePre     -> Pre,
+                                              Hyphen | Unexpected @ ParsePre     -> ErrorUnexpected,
+
+                                               Number | V | Alpha @ ExpectBuild  -> SaveStart,
+                                                       EndOfInput @ ExpectBuild  -> ErrorMissingBuild,
+                    Dot | Hyphen | Plus | Whitespace | Unexpected @ ExpectBuild  -> ErrorUnexpected,
+
+                                    Dot | Whitespace | EndOfInput @ ParseBuild   -> Build,
+                                       Hyphen | Plus | Unexpected @ ParseBuild   -> ErrorUnexpected,
+
+            Alpha | V | Number | Dot | Hyphen | Plus | Unexpected @ EndOfInput   -> ErrorUnexpected,
+        );
+
+        (transitions, emits)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use semver::Version;
+        use test_case::test_case;
+
+        #[test_case("1.2.3")]
+        #[test_case("  1.2.4  ")]
+        #[test_case("1.2.3-alpha1")]
+        #[test_case("  1.2.3-alpha2  ")]
+        #[test_case("1.2.3-alpha01.drop02")]
+        #[test_case("1.4.1-alpha01")]
+        #[test_case("1.3.3-7")]
+        #[test_case("1.2.3+build1")]
+        #[test_case("  1.2.3+build2  ")]
+        #[test_case("1.2.3+build01.drop02")]
+        #[test_case("1.4.1+build01")]
+        #[test_case("1.2.3-alpha1+build5")]
+        #[test_case("   1.2.3-alpha2+build6   ")]
+        #[test_case("1.2.3-1.alpha1.9+build5.7.3aedf  ")]
+        #[test_case("0.4.0-beta.1+0851523")]
+        #[test_case("2.7.3+Final")]
+        #[test_case("2.7.3+Release")]
+        #[test_case("2.7.3+r")]
+        #[test_case("2020.4.9")]
+        #[test_case("2020.04.09")]
+        #[test_case("2.3.4+1")]
+        #[test_case("2.3.4+01")]
+        #[test_case("2.3.4+0001")]
+        #[test_case("1.2.3+v6")]
+        #[test_case("1.2.3-alpha.v4")]
+        #[test_case("1.2.3-alpha+v6")]
+        #[test_case("1.2.3+build.v4")]
+        #[test_case("1.2.3-alpha.v6+build.v7")]
+        #[test_case("1.2.3-9876543210987654321098765432109876543211")]
+        #[test_case("1.2.3+9876543210987654321098765432109876543213")]
+        fn test_positive(input: &str) {
+            assert!(parse::<Version>(input).is_ok())
+        }
+
+        #[test_case("  "; "spaces")]
+        #[test_case("  v2  ")]
+        #[test_case("  V5  ")]
+        #[test_case("."; "dot")]
+        #[test_case(""; "empty")]
+        #[test_case("🙈"; "emoji")]
+        #[test_case("00001")]
+        #[test_case("01")]
+        #[test_case("1 abc")]
+        #[test_case("1-alpha03")]
+        #[test_case("1-v3")]
+        #[test_case("1. "; "1 dot space")]
+        #[test_case("1."; "1 dot")]
+        #[test_case("1.+.0")]
+        #[test_case("1.2-v4")]
+        #[test_case("1.2. "; "1 2 dot space")]
+        #[test_case("1.2.."; "1 2 dot dot space")]
+        #[test_case("1.2." ; "1 2 dot")]
+        #[test_case("1.2.3 abc")]
+        #[test_case("1.2.3- "; "1 2 3 hyphen space")]
+        #[test_case("1.2.3--"; "1 2 3 hyphen hyphen")]
+        #[test_case("1.2.3-."; "1 2 3 hyphen dot")]
+        #[test_case("1.2.3-"; "1 2 3 hyphen")]
+        #[test_case("1.2.3-+"; "1 2 3 hyphen plus")]
+        #[test_case("1.2.3-🙈")]
+        #[test_case("1.2.3-alpha-v5")]
+        #[test_case("1.2.3.4- "; "1 2 3 4 hyphen space")]
+        #[test_case("1.2.3.4-"; "1 2 3 4 hyphen")]
+        #[test_case("1.2.3.9876543210987654321098765432109876543210")]
+        #[test_case("1.2.3.RC.4")]
+        #[test_case("1.2.3.v4")]
+        #[test_case("1.2.3+ "; "1 2 3 plus space")]
+        #[test_case("1.2.3+-"; "1 2 3 plus hyphen")]
+        #[test_case("1.2.3+."; "1 2 3 plus dot")]
+        #[test_case("1.2.3+" ; "1 2 3 plus")]
+        #[test_case("1.2.3++"; "1 2 3 plus plus")]
+        #[test_case("1.2.3+build-v5")]
+        #[test_case("1.2.9876543210987654321098765432109876543210")]
+        #[test_case("1.2.v3")]
+        #[test_case("1.2")]
+        #[test_case("1.2+v5")]
+        #[test_case("1.3.3.0")]
+        #[test_case("1.3.3.00")]
+        #[test_case("1.3.3.07")]
+        #[test_case("1.3.3.7-bar")]
+        #[test_case("1.3.3.7.04.02")]
+        #[test_case("1.3.3.7.4.2")]
+        #[test_case("1.3.3.7.foo")]
+        #[test_case("1.3.3.7")]
+        #[test_case("1.3.3.7+baz")]
+        #[test_case("1.3.3.9876543210987654321098765432109876543210.4.2")]
+        #[test_case("1.3.3.9876543210987654321098765432109876543210")]
+        #[test_case("1.4-alpha02")]
+        #[test_case("1.4+build02")]
+        #[test_case("1.9.3.RC1")]
+        #[test_case("1.9.RC2")]
+        #[test_case("1.9876543210987654321098765432109876543210.2")]
+        #[test_case("1.9876543210987654321098765432109876543210")]
+        #[test_case("1.RC3")]
+        #[test_case("1.v2")]
+        #[test_case("1")]
+        #[test_case("1+build03")]
+        #[test_case("1+v4")]
+        #[test_case("1🙈"; "1 emoji")]
+        #[test_case("123456789012345678901234567890")]
+        #[test_case("2-Final")]
+        #[test_case("3-r")]
+        #[test_case("4-Release")]
+        #[test_case("2.7-Final")]
+        #[test_case("2.8-r")]
+        #[test_case("2.9-Release")]
+        #[test_case("2.7.3.Final")]
+        #[test_case("2.7.4.r")]
+        #[test_case("2.7.5.Release")]
+        #[test_case("2.8.Final")]
+        #[test_case("2.9.r")]
+        #[test_case("2.6.Release")]
+        #[test_case("2.5+Final")]
+        #[test_case("2.4+r")]
+        #[test_case("2.3+Release")]
+        #[test_case("3.Final")]
+        #[test_case("2.r")]
+        #[test_case("3.Release")]
+        #[test_case("4+Final")]
+        #[test_case("5+r")]
+        #[test_case("2+Release")]
+        #[test_case("2020.04")]
+        #[test_case("2020.4")]
+        #[test_case("3.1.0-M13-beta3")]
+        #[test_case("3.1.0+build3-r021")]
+        #[test_case("5.9.0-202009080501-r")]
+        #[test_case("7.2.0+28-2f9fb552")]
+        #[test_case("a.b.c")]
+        #[test_case("a1.2.3")]
+        #[test_case("v v1.2.3")]
+        #[test_case("v-2.3.4")]
+        #[test_case("v.1.2.3")]
+        #[test_case("v")]
+        #[test_case("v+3.4.5")]
+        #[test_case("v🙈"; "v emoji")]
+        #[test_case("v1.2.3")]
+        #[test_case("v1.3.3-7")]
+        #[test_case("v1")]
+        #[test_case("V2.3.4")]
+        #[test_case("V3")]
+        #[test_case("V4.2.4-2")]
+        #[test_case("val")]
+        #[test_case("vv1.2.3")]
+        fn test_negative(input: &str) {
+            assert!(parse::<Version>(input).is_err());
+        }
+    }
 }
 
 /// for benchmarks
