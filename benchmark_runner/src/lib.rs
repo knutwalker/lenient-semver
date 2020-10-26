@@ -1,4 +1,4 @@
-use criterion::{black_box, BenchmarkId, Criterion};
+use criterion::{black_box, measurement::WallTime, BenchmarkGroup, BenchmarkId, Criterion};
 use std::time::Duration;
 
 macro_rules! run_group {
@@ -43,23 +43,30 @@ fn parser_benchmarks(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("regex");
     for &input in ::benchmarks::INPUTS.iter() {
-        let id = BenchmarkId::new("semver_rs", input.trim());
-        group.bench_with_input(id, input, |b, input| {
-            b.iter(|| ::benchmarks::semver_rs(black_box(input)))
-        });
-
-        let id = BenchmarkId::new("semver_rs_loose", input.trim());
-        group.bench_with_input(id, input, |b, input| {
-            b.iter(|| ::benchmarks::semver_rs_loose(black_box(input)))
-        });
-
-        let id = BenchmarkId::new("regex", input.trim());
-        let re = ::benchmarks::parsing_regex();
-        group.bench_with_input(id, &(input, re), |b, (input, re)| {
-            b.iter(|| ::benchmarks::regex(re, black_box(input)))
-        });
+        regex_benchmarks(&mut group, input, None);
     }
+    let mega = ::benchmarks::mega_input();
+    regex_benchmarks(&mut group, &mega, Some("mega"));
     group.finish();
+}
+
+fn regex_benchmarks(group: &mut BenchmarkGroup<WallTime>, input: &str, ident: Option<&str>) {
+    let ident = ident.unwrap_or_else(|| input.trim());
+    let id = BenchmarkId::new("semver_rs", ident);
+    group.bench_with_input(id, input, |b, input| {
+        b.iter(|| ::benchmarks::semver_rs(black_box(input)))
+    });
+
+    let id = BenchmarkId::new("semver_rs_loose", ident);
+    group.bench_with_input(id, input, |b, input| {
+        b.iter(|| ::benchmarks::semver_rs_loose(black_box(input)))
+    });
+
+    let id = BenchmarkId::new("regex", ident);
+    let re = ::benchmarks::parsing_regex();
+    group.bench_with_input(id, &(input, re), |b, (input, re)| {
+        b.iter(|| ::benchmarks::regex(re, black_box(input)))
+    });
 }
 
 fn crate_benchmarks(c: &mut Criterion) {
