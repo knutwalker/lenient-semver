@@ -1,6 +1,6 @@
 [package]
 name = "benchmark_runner"
-version = "0.2.1-alpha.0"
+version = "0.3.0"
 description = "Benchmark runner for Lenient parser for Semantic Version numbers."
 authors = ["Paul Horn <developer@knutwalker.de>"]
 edition = "2018"
