@@ -17,6 +17,7 @@ semver10 = { version = "0.10", optional = true, package = "semver" }
 
 [features]
 default = ["semver"]
+generator = []
 strict = []
 
 [dev-dependencies]

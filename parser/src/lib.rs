@@ -1742,3 +1742,236 @@ pub mod strict {
         }
     }
 }
+
+/// for benchmarks
+#[cfg(all(feature = "generator", feature = "strict"))]
+pub mod generator {
+    #[cfg(test)]
+    use std::collections::HashMap;
+
+    use super::*;
+
+    /// for benchmarks
+    pub fn generate_20000(seed: u32) -> String {
+        let classes = [
+            Class::Number,
+            Class::Alpha,
+            Class::Dot,
+            Class::Hyphen,
+            Class::Plus,
+        ];
+        let dfa = strict::strict_dfa();
+
+        let mut seed = if seed == 0 { 0xBAD_5EED } else { seed };
+        let mut state = State::ExpectMajor;
+        let mut candidates = [Class::Whitespace; 6];
+
+        let mut result = Vec::with_capacity(20_000);
+        let size = 20_000_usize;
+        loop {
+            let mut cls = 0;
+            let mut num_candidates = 0;
+            while cls < classes.len() {
+                let possible_state = transition(&dfa, state, classes[cls]).0;
+                if possible_state != State::Error {
+                    candidates[num_candidates] = classes[cls];
+                    num_candidates += 1;
+                }
+                cls += 1;
+            }
+            let (new_seed, candidate) = roll(seed, num_candidates);
+            let candidate = candidates[candidate];
+            let (new_seed, ch) = char_for(new_seed, candidate);
+            seed = new_seed;
+            state = transition(&dfa, state, candidate).0;
+            result.push(ch);
+
+            if result.len() >= size && transition(&dfa, state, Class::EndOfInput).0 != State::Error
+            {
+                break;
+            }
+        }
+
+        String::from_utf8(result).unwrap()
+    }
+
+    const fn char_for(seed: u32, class: Class) -> (u32, u8) {
+        match class {
+            Class::Number => {
+                let (seed, number) = roll(seed, 10);
+                (seed, b'0' + number as u8)
+            }
+            Class::Alpha => {
+                let (seed, use_upper) = roll(seed, 2);
+                // don't generate a v as v0.2 chokes on that
+                let (seed, mut number) = roll(seed, 25);
+                // if `v` was selected (21), shift result by 1
+                if number >= 21 {
+                    number += 1;
+                }
+                let start = if use_upper == 0 { b'a' } else { b'A' };
+                (seed, start + number as u8)
+            }
+            Class::Dot => (seed, b'.'),
+            Class::Hyphen => (seed, b'-'),
+            Class::Plus => (seed, b'+'),
+            Class::Whitespace | Class::EndOfInput | Class::Unexpected | Class::V => (seed, b' '),
+        }
+    }
+
+    const fn roll(seed: u32, upper: usize) -> (u32, usize) {
+        let x = seed;
+        let x = x ^ x.wrapping_shl(13);
+        let x = x ^ x.wrapping_shr(17);
+        let x = x ^ x.wrapping_shl(5);
+        (x, x as usize % upper)
+    }
+
+    #[cfg(test)]
+    fn dot() -> String {
+        struct Node {
+            name: String,
+            accepts: bool,
+        };
+        struct Edge {
+            from: State,
+            to: State,
+            matches: String,
+            accepts: bool,
+        }
+
+        let mut nodes = [
+            State::ExpectMajor,
+            State::ParseMajor,
+            State::ExpectMinor,
+            State::ParseMinor,
+            State::ExpectPatch,
+            State::ParsePatch,
+            State::ExpectAdd,
+            State::ParseAdd,
+            State::ExpectPre,
+            State::ParsePre,
+            State::ExpectBuild,
+            State::ParseBuild,
+            State::RequireMajor,
+            // State::EndOfInput,
+            // State::Error,
+        ]
+        .iter()
+        .map(|s| {
+            (
+                *s,
+                Node {
+                    name: format!("{}", s),
+                    accepts: false,
+                },
+            )
+        })
+        .collect::<HashMap<State, Node>>();
+
+        let classes = [
+            Class::Number,
+            Class::Alpha,
+            Class::Dot,
+            Class::Hyphen,
+            Class::Plus,
+            Class::V,
+            Class::Whitespace,
+            Class::EndOfInput,
+            Class::Unexpected,
+        ];
+
+        let edges = nodes
+            .iter_mut()
+            .map(|(&s, node)| {
+                let mut targets = HashMap::new();
+                for &c in &classes {
+                    let (target, accept) = transition(&DFA, s, c);
+                    if target != State::Error {
+                        let accepts = accept != Accept::None && accept != Accept::SaveStart;
+                        targets
+                            .entry((target, accepts))
+                            .or_insert_with(Vec::new)
+                            .push(c);
+                    }
+                }
+                let ends = targets
+                    .remove(&(State::EndOfInput, true))
+                    .or(targets.remove(&(State::EndOfInput, false)));
+
+                if ends.is_some() {
+                    node.accepts = true;
+                }
+
+                (s, targets)
+            })
+            .collect::<HashMap<State, HashMap<(State, bool), Vec<Class>>>>();
+
+        let edges = edges
+            .into_iter()
+            .flat_map(|(from, targets)| {
+                let targets = targets
+                    .into_iter()
+                    .map(|((to, accepts), classes)| {
+                        let has_alpha = classes.contains(&Class::Alpha);
+                        let matches = classes
+                            .into_iter()
+                            .filter(|c| !has_alpha || *c != Class::V)
+                            .map(|c| c.to_string())
+                            .collect::<String>();
+                        Edge {
+                            from,
+                            to,
+                            matches,
+                            accepts,
+                        }
+                    })
+                    .collect::<Vec<Edge>>();
+                targets
+            })
+            .collect::<Vec<Edge>>();
+
+        let mut statements = nodes
+            .into_iter()
+            .map(|(state, node)| {
+                let shape_color = if node.accepts {
+                    " shape=doublecircle color=blue3"
+                } else {
+                    ""
+                };
+                format!(r#"{}[label="{}"{}]"#, state, node.name, shape_color)
+            })
+            .collect::<Vec<_>>();
+
+        statements.extend(edges.into_iter().map(
+            |Edge {
+                 from,
+                 to,
+                 matches,
+                 accepts,
+             }| {
+                let color = if accepts {
+                    " color=green3 fontcolor=green4 penwidth=1.7"
+                } else {
+                    ""
+                };
+                format!(r#"{} -> {}[label="{}"{}]"#, from, to, matches, color)
+            },
+        ));
+
+        statements.insert(
+            0,
+            String::from(r#"edge [fontname="JetBrains Mono,Fira Code,Monospace"]"#),
+        );
+        statements.insert(0, String::from(r#"node [margin=0.02 shape=circle]"#));
+        statements.insert(0, String::from(r#"graph [rankdir=LR]"#));
+
+        let statements = statements.join(";\n    ");
+        format!("digraph dfa {{\n    {};\n}}", statements)
+    }
+
+    #[test]
+    fn print_dot() {
+        println!("{}", dot());
+    }
+}
