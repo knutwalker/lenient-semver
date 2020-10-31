@@ -225,7 +225,7 @@ pub trait VersionBuilder<'input> {
 #[cfg(any(test, feature = "semver", feature = "semver10",))]
 fn try_num(s: &str) -> Result<u64, &str> {
     match s.parse::<u64>() {
-        Ok(num) if !s.starts_with("0") || s == "0" => Ok(num),
+        Ok(num) if !s.starts_with('0') || s == "0" => Ok(num),
         _ => Err(s),
     }
 }
