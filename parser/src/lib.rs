@@ -483,11 +483,6 @@ impl<'input> Error<'input> {
             width = (self.span.end - self.span.start)
         )
     }
-
-    fn new(input: &'input str, error: ErrorKind, start: usize, end: usize) -> Self {
-        let span = Span::new(start, end);
-        Error { input, error, span }
-    }
 }
 
 /// Owned version of [`Error`] which clones the input string.
@@ -632,6 +627,121 @@ fn eq_bytes_ignore_case(left: &str, right: &str) -> bool {
         .all(|(c1, c2)| c1 == c2)
 }
 
+macro_rules! accept {
+    (
+        $op: ident,
+        $index: ident,
+        $b: ident,
+        $state: ident,
+        $new_state: ident,
+        $start: ident,
+        $v: ident,
+        $num: ident,
+        $input: ident
+    ) => {
+        #[allow(unused_assignments)]
+        {
+            match $op {
+                Accept::None => {}
+                Accept::SaveStart => {
+                    $start = $index;
+                }
+                Accept::Major => match $input[$start..$index].parse::<u64>() {
+                    Ok(num) => $v.set_major(num),
+                    _ => {
+                        return Err(Error {
+                            input: $input,
+                            error: ErrorKind::NumberOverflow,
+                            span: Span::new($start, $index),
+                        });
+                    }
+                },
+                Accept::Minor => {
+                    let segment = &$input[$start..$index];
+                    match segment.parse::<u64>() {
+                        Ok(num) => $v.set_minor(num),
+                        _ => {
+                            $v.add_pre_release(segment);
+                            if $new_state < State::ExpectPre {
+                                $new_state = State::ExpectPre;
+                            }
+                        }
+                    }
+                }
+                Accept::Patch => {
+                    let segment = &$input[$start..$index];
+                    match segment.parse::<u64>() {
+                        Ok(num) => $v.set_patch(num),
+                        _ => {
+                            $v.add_pre_release(segment);
+                            if $new_state < State::ExpectPre {
+                                $new_state = State::ExpectPre;
+                            }
+                        }
+                    }
+                }
+                Accept::Add => {
+                    let segment = &$input[$start..$index];
+                    match segment.parse::<u64>() {
+                        Ok(num) => $v.add_additional(num),
+                        _ => {
+                            $v.add_pre_release(segment);
+                            if $new_state < State::ExpectPre {
+                                $new_state = State::ExpectPre;
+                            }
+                        }
+                    }
+                }
+                Accept::Pre => {
+                    let segment = &$input[$start..$index];
+                    if is_release_identifier(segment) {
+                        if $new_state < State::EndOfInput {
+                            return Err(Error {
+                                input: $input,
+                                error: ErrorKind::UnexpectedInput,
+                                span: span_from($input, $index),
+                            });
+                        }
+                        $v.add_build(segment);
+                    } else {
+                        $v.add_pre_release(segment);
+                    }
+                }
+                Accept::Build => {
+                    $v.add_build(&$input[$start..$index]);
+                }
+                Accept::ErrorMissing => {
+                    let span = if $index < $input.len() {
+                        span_from($input, $index)
+                    } else {
+                        Span::new($index, $index)
+                    };
+                    let error = match $state {
+                        State::ExpectMajor | State::RequireMajor => ErrorKind::MissingMajorNumber,
+                        State::ExpectMinor | State::ParseMajor => ErrorKind::MissingMinorNumber,
+                        State::ExpectPatch | State::ParseMinor => ErrorKind::MissingPatchNumber,
+                        State::ExpectAdd | State::ExpectPre => ErrorKind::MissingPreRelease,
+                        State::ExpectBuild => ErrorKind::MissingBuild,
+                        _ => unreachable!(),
+                    };
+                    return Err(Error {
+                        input: $input,
+                        error,
+                        span,
+                    });
+                }
+                Accept::ErrorUnexpected => {
+                    return Err(Error {
+                        input: $input,
+                        error: ErrorKind::UnexpectedInput,
+                        span: span_from($input, $index),
+                    });
+                }
+            }
+        }
+    };
+}
+
 #[inline]
 fn parse_internal<'input, V>(
     input: &'input str,
@@ -641,48 +751,18 @@ fn parse_internal<'input, V>(
 where
     V: VersionBuilder<'input>,
 {
-    let actions: Actions<'input, V> = [
-        do_nothing,
-        save_start,
-        parse_major,
-        parse_minor,
-        parse_patch,
-        parse_add,
-        parse_pre_release,
-        parse_build,
-        error_missing_major,
-        error_missing_minor,
-        error_missing_patch,
-        error_missing_pre,
-        error_missing_build,
-        error_unexpected,
-    ];
-    parse_internal_with(input, dfa, lookup, actions)
-}
-
-#[inline]
-fn parse_internal_with<'input, V>(
-    input: &'input str,
-    dfa: &Dfa,
-    lookup: &Lookup,
-    actions: Actions<'input, V>,
-) -> Result<V::Out, Error<'input>>
-where
-    V: VersionBuilder<'input>,
-{
     let mut start = 0_usize;
     let mut v = V::new();
     let mut state = State::ExpectMajor;
 
-    let mut_v = &mut v;
-    let mut_s = &mut start;
     for (index, b) in input.bytes().enumerate() {
-        let (mut new_state, emits) = transduce(lookup, dfa, state, b);
-        (actions[emits as u8 as usize])(input, mut_v, mut_s, &mut new_state, index)?;
+        let (mut new_state, accepts) = transduce(lookup, dfa, state, b);
+        accept!(accepts, index, b, state, new_state, start, v, num, input);
         state = new_state;
     }
-    let (mut new_state, emits) = transition(dfa, state, Class::EndOfInput);
-    (actions[emits as u8 as usize])(input, mut_v, mut_s, &mut new_state, input.len())?;
+    let (mut new_state, accepts) = transition(dfa, state, Class::EndOfInput);
+    let index = input.len();
+    accept!(accepts, index, b, state, new_state, start, v, num, input);
     Ok(v.build())
 }
 
@@ -786,11 +866,9 @@ impl Display for Class {
     }
 }
 
-const EMITS: usize = 14;
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
-enum Emit {
+enum Accept {
     None,
     SaveStart,
     Major,
@@ -799,11 +877,7 @@ enum Emit {
     Add,
     Pre,
     Build,
-    ErrorMissingMajor,
-    ErrorMissingMinor,
-    ErrorMissingPatch,
-    ErrorMissingPre,
-    ErrorMissingBuild,
+    ErrorMissing,
     ErrorUnexpected,
 }
 
@@ -845,17 +919,17 @@ macro_rules! dfa {
         };
     }
 
-macro_rules! emit {
-        ($emits:ident: $($($cls:ident)|+ @ $state:ident -> $emit:ident),+,) => {
+macro_rules! accept {
+        ($accepts:ident: $($($cls:ident)|+ @ $state:ident -> $accept:ident),+,) => {
             $(
                 $(
-                    $emits[dfa_index(State::$state, Class::$cls) as usize] = Emit::$emit;
+                    $accepts[dfa_index(State::$state, Class::$cls) as usize] = Accept::$accept;
                 )+
             )+
         };
     }
 
-type Dfa = ([State; STATES * CLASSES], [Emit; STATES * CLASSES]);
+type Dfa = ([State; STATES * CLASSES], [Accept; STATES * CLASSES]);
 
 const fn dfa() -> Dfa {
     let mut transitions = [State::Error; STATES * CLASSES];
@@ -918,49 +992,49 @@ const fn dfa() -> Dfa {
     Whitespace | EndOfInput @ EndOfInput   -> EndOfInput,
     );
 
-    let mut emits = [Emit::None; STATES * CLASSES];
-    emit!(emits:
+    let mut accepts = [Accept::None; STATES * CLASSES];
+    accept!(accepts:
                                                        Number @ ExpectMajor  -> SaveStart,
-                                                   EndOfInput @ ExpectMajor  -> ErrorMissingMajor,
+                                                   EndOfInput @ ExpectMajor  -> ErrorMissing,
                      Alpha | Dot | Hyphen | Plus | Unexpected @ ExpectMajor  -> ErrorUnexpected,
 
                                                        Number @ RequireMajor -> SaveStart,
-                                                   EndOfInput @ RequireMajor -> ErrorMissingMajor,
+                                                   EndOfInput @ RequireMajor -> ErrorMissing,
     Whitespace | Alpha | V | Dot | Hyphen | Plus | Unexpected @ RequireMajor -> ErrorUnexpected,
 
                 Whitespace | EndOfInput | Dot | Hyphen | Plus @ ParseMajor   -> Major,
                                        Alpha | V | Unexpected @ ParseMajor   -> ErrorUnexpected,
 
                                            Number | V | Alpha @ ExpectMinor  -> SaveStart,
-                                                   EndOfInput @ ExpectMinor  -> ErrorMissingMinor,
+                                                   EndOfInput @ ExpectMinor  -> ErrorMissing,
                 Whitespace | Dot | Hyphen | Plus | Unexpected @ ExpectMinor  -> ErrorUnexpected,
 
                 Whitespace | EndOfInput | Dot | Hyphen | Plus @ ParseMinor   -> Minor,
                                                    Unexpected @ ParseMinor   -> ErrorUnexpected,
 
                                            Number | V | Alpha @ ExpectPatch  -> SaveStart,
-                                                   EndOfInput @ ExpectPatch  -> ErrorMissingPatch,
+                                                   EndOfInput @ ExpectPatch  -> ErrorMissing,
                 Whitespace | Dot | Hyphen | Plus | Unexpected @ ExpectPatch  -> ErrorUnexpected,
 
                 Whitespace | EndOfInput | Dot | Hyphen | Plus @ ParsePatch   -> Patch,
                                                    Unexpected @ ParsePatch   -> ErrorUnexpected,
 
                                            Number | V | Alpha @ ExpectAdd    -> SaveStart,
-                                                   EndOfInput @ ExpectAdd    -> ErrorMissingPre,
+                                                   EndOfInput @ ExpectAdd    -> ErrorMissing,
                 Whitespace | Dot | Hyphen | Plus | Unexpected @ ExpectAdd    -> ErrorUnexpected,
 
                 Whitespace | EndOfInput | Dot | Hyphen | Plus @ ParseAdd     -> Add,
                                                    Unexpected @ ParseAdd     -> ErrorUnexpected,
 
                                            Number | V | Alpha @ ExpectPre    -> SaveStart,
-                                                   EndOfInput @ ExpectPre    -> ErrorMissingPre,
+                                                   EndOfInput @ ExpectPre    -> ErrorMissing,
                 Whitespace | Dot | Hyphen | Plus | Unexpected @ ExpectPre    -> ErrorUnexpected,
 
                 Whitespace | EndOfInput | Dot | Hyphen | Plus @ ParsePre     -> Pre,
                                                    Unexpected @ ParsePre     -> ErrorUnexpected,
 
                                            Number | V | Alpha @ ExpectBuild  -> SaveStart,
-                                                   EndOfInput @ ExpectBuild  -> ErrorMissingBuild,
+                                                   EndOfInput @ ExpectBuild  -> ErrorMissing,
                 Whitespace | Dot | Hyphen | Plus | Unexpected @ ExpectBuild  -> ErrorUnexpected,
 
                 Whitespace | EndOfInput | Dot | Hyphen | Plus @ ParseBuild   -> Build,
@@ -969,272 +1043,21 @@ const fn dfa() -> Dfa {
         Alpha | V | Number | Dot | Hyphen | Plus | Unexpected @ EndOfInput   -> ErrorUnexpected,
     );
 
-    (transitions, emits)
+    (transitions, accepts)
 }
 
 static LOOKUP: Lookup = class_lookup();
 static DFA: Dfa = dfa();
 
 #[inline(always)]
-const fn transduce(class_lookup: &Lookup, dfa: &Dfa, s: State, b: u8) -> (State, Emit) {
+const fn transduce(class_lookup: &Lookup, dfa: &Dfa, s: State, b: u8) -> (State, Accept) {
     transition(dfa, s, class_lookup[b as usize])
 }
 
 #[inline(always)]
-const fn transition(dfa: &Dfa, s: State, class: Class) -> (State, Emit) {
+const fn transition(dfa: &Dfa, s: State, class: Class) -> (State, Accept) {
     let index = dfa_index(s, class) as usize;
     (dfa.0[index], dfa.1[index])
-}
-
-type Actions<'input, V> = [for<'local> fn(
-    &'input str,
-    &'local mut V,
-    &'local mut usize,
-    &'local mut State,
-    usize,
-) -> Result<(), Error<'input>>; EMITS];
-
-fn do_nothing<'input, V>(
-    _input: &'input str,
-    _v: &mut V,
-    _start: &mut usize,
-    _new_state: &mut State,
-    _index: usize,
-) -> Result<(), Error<'input>>
-where
-    V: VersionBuilder<'input>,
-{
-    Ok(())
-}
-
-fn save_start<'input, V>(
-    _input: &'input str,
-    _v: &mut V,
-    start: &mut usize,
-    _new_state: &mut State,
-    index: usize,
-) -> Result<(), Error<'input>>
-where
-    V: VersionBuilder<'input>,
-{
-    *start = index;
-    Ok(())
-}
-
-fn parse_major<'input, V>(
-    input: &'input str,
-    v: &mut V,
-    start: &mut usize,
-    _new_state: &mut State,
-    index: usize,
-) -> Result<(), Error<'input>>
-where
-    V: VersionBuilder<'input>,
-{
-    match input[*start..index].parse::<u64>() {
-        Ok(num) => {
-            v.set_major(num);
-            Ok(())
-        }
-        _ => Err(Error::new(input, ErrorKind::NumberOverflow, *start, index)),
-    }
-}
-
-fn parse_minor<'input, V>(
-    input: &'input str,
-    v: &mut V,
-    start: &mut usize,
-    new_state: &mut State,
-    index: usize,
-) -> Result<(), Error<'input>>
-where
-    V: VersionBuilder<'input>,
-{
-    let segment = &input[*start..index];
-    match segment.parse::<u64>() {
-        Ok(num) => v.set_minor(num),
-        _ => {
-            v.add_pre_release(segment);
-            if *new_state < State::ExpectPre {
-                *new_state = State::ExpectPre;
-            }
-        }
-    };
-    Ok(())
-}
-
-fn parse_patch<'input, V>(
-    input: &'input str,
-    v: &mut V,
-    start: &mut usize,
-    new_state: &mut State,
-    index: usize,
-) -> Result<(), Error<'input>>
-where
-    V: VersionBuilder<'input>,
-{
-    let segment = &input[*start..index];
-    match segment.parse::<u64>() {
-        Ok(num) => v.set_patch(num),
-        _ => {
-            v.add_pre_release(segment);
-            if *new_state < State::ExpectPre {
-                *new_state = State::ExpectPre;
-            }
-        }
-    };
-    Ok(())
-}
-
-fn parse_add<'input, V>(
-    input: &'input str,
-    v: &mut V,
-    start: &mut usize,
-    new_state: &mut State,
-    index: usize,
-) -> Result<(), Error<'input>>
-where
-    V: VersionBuilder<'input>,
-{
-    let segment = &input[*start..index];
-    match segment.parse::<u64>() {
-        Ok(num) => v.add_additional(num),
-        _ => {
-            v.add_pre_release(segment);
-            if *new_state < State::ExpectPre {
-                *new_state = State::ExpectPre;
-            }
-        }
-    };
-    Ok(())
-}
-
-fn parse_pre_release<'input, V>(
-    input: &'input str,
-    v: &mut V,
-    start: &mut usize,
-    new_state: &mut State,
-    index: usize,
-) -> Result<(), Error<'input>>
-where
-    V: VersionBuilder<'input>,
-{
-    let segment = &input[*start..index];
-    if is_release_identifier(segment) {
-        if *new_state < State::EndOfInput {
-            return error_unexpected(input, v, start, new_state, index);
-        }
-        v.add_build(segment);
-    } else {
-        v.add_pre_release(segment);
-    }
-
-    Ok(())
-}
-
-fn parse_build<'input, V>(
-    input: &'input str,
-    v: &mut V,
-    start: &mut usize,
-    _new_state: &mut State,
-    index: usize,
-) -> Result<(), Error<'input>>
-where
-    V: VersionBuilder<'input>,
-{
-    v.add_build(&input[*start..index]);
-    Ok(())
-}
-
-fn error_missing_major<'input, V>(
-    input: &'input str,
-    _v: &mut V,
-    _start: &mut usize,
-    _new_state: &mut State,
-    index: usize,
-) -> Result<(), Error<'input>>
-where
-    V: VersionBuilder<'input>,
-{
-    error_missing(ErrorKind::MissingMajorNumber, input, index)
-}
-
-fn error_missing_minor<'input, V>(
-    input: &'input str,
-    _v: &mut V,
-    _start: &mut usize,
-    _new_state: &mut State,
-    index: usize,
-) -> Result<(), Error<'input>>
-where
-    V: VersionBuilder<'input>,
-{
-    error_missing(ErrorKind::MissingMinorNumber, input, index)
-}
-
-fn error_missing_patch<'input, V>(
-    input: &'input str,
-    _v: &mut V,
-    _start: &mut usize,
-    _new_state: &mut State,
-    index: usize,
-) -> Result<(), Error<'input>>
-where
-    V: VersionBuilder<'input>,
-{
-    error_missing(ErrorKind::MissingPatchNumber, input, index)
-}
-
-fn error_missing_pre<'input, V>(
-    input: &'input str,
-    _v: &mut V,
-    _start: &mut usize,
-    _new_state: &mut State,
-    index: usize,
-) -> Result<(), Error<'input>>
-where
-    V: VersionBuilder<'input>,
-{
-    error_missing(ErrorKind::MissingPreRelease, input, index)
-}
-
-fn error_missing_build<'input, V>(
-    input: &'input str,
-    _v: &mut V,
-    _start: &mut usize,
-    _new_state: &mut State,
-    index: usize,
-) -> Result<(), Error<'input>>
-where
-    V: VersionBuilder<'input>,
-{
-    error_missing(ErrorKind::MissingBuild, input, index)
-}
-
-fn error_missing(error: ErrorKind, input: &str, index: usize) -> Result<(), Error<'_>> {
-    let span = if index < input.len() {
-        span_from(input, index)
-    } else {
-        Span::new(index, index)
-    };
-    Err(Error { input, error, span })
-}
-
-fn error_unexpected<'input, V>(
-    input: &'input str,
-    _v: &mut V,
-    _start: &mut usize,
-    _new_state: &mut State,
-    index: usize,
-) -> Result<(), Error<'input>>
-where
-    V: VersionBuilder<'input>,
-{
-    Err(Error {
-        input,
-        error: ErrorKind::UnexpectedInput,
-        span: span_from(input, index),
-    })
 }
 
 #[inline]
