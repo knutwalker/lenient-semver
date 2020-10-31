@@ -451,7 +451,7 @@ impl Display for Version<'_> {
             result.push_str("-");
             result.push_str(pre);
         }
-        while let Some(pre) = pre.next() {
+        for pre in pre {
             result.push_str(".");
             result.push_str(pre);
         }
@@ -461,7 +461,7 @@ impl Display for Version<'_> {
             result.push_str("+");
             result.push_str(build);
         }
-        while let Some(build) = build.next() {
+        for build in build {
             result.push_str(".");
             result.push_str(build);
         }
