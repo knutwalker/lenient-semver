@@ -3,7 +3,7 @@ members = [ "parser", "version", "benchmarks", "benchmark_runner" ]
 
 [package]
 name = "lenient_semver"
-version = "0.3.0"
+version = "0.3.1"
 description = "Lenient Semantic Version numbers."
 authors = ["Paul Horn <developer@knutwalker.de>"]
 edition = "2018"
