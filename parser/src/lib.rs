@@ -99,6 +99,42 @@ where
     parse_internal::<V>(input, &DFA, &LOOKUP)
 }
 
+/// Parse a string slice into a Version without failing on unexpected input.
+///
+/// This function tries to parse the string into a version and then stops when the input
+/// no longer parsed into a version. The remainder if the input is returned alongside the version.
+/// There still needs to be some valid version at the beginning of the string. That means
+/// parsing anything that does not start with a version still fails.
+///
+/// All differences mentioned in [`parse`] apply to this function as well.
+///
+/// ## Examples
+///
+/// ```rust
+/// use semver::Version;
+///
+/// assert_eq!(
+///     lenient_semver_parser::parse_partial::<Version>("1.2.3 and the rest").unwrap(),
+///     (Version::new(1, 2, 3), "and the rest")
+/// );
+///
+/// assert_eq!(
+///     lenient_semver_parser::parse_partial::<Version>("1,2").unwrap(),
+///     (Version::new(1, 0, 0), ",2")
+/// );
+///
+/// assert_eq!(
+///     lenient_semver_parser::parse_partial::<Version>("1 - 2").unwrap(),
+///     (Version::new(1, 0, 0), "- 2")
+/// );
+/// ```
+pub fn parse_partial<'input, V>(input: &'input str) -> Result<(V::Out, &'input str), Error<'input>>
+where
+    V: VersionBuilder<'input>,
+{
+    parse_partial_internal::<V>(input, &DFA, &LOOKUP)
+}
+
 /// Trait to abstract over version building.
 ///
 /// The methods to implement in this trait represent the components of [`semver::Version`],
@@ -627,11 +663,18 @@ fn eq_bytes_ignore_case(left: &str, right: &str) -> bool {
         .all(|(c1, c2)| c1 == c2)
 }
 
-macro_rules! accept {
+#[derive(Debug)]
+struct InternalError {
+    state: State,
+    span: Span,
+    error: ErrorKind,
+}
+
+macro_rules! accepts {
     (
         $op: ident,
         $index: ident,
-        $b: ident,
+        $partial: ident,
         $state: ident,
         $new_state: ident,
         $start: ident,
@@ -649,8 +692,8 @@ macro_rules! accept {
                 Accept::Major => match $input[$start..$index].parse::<u64>() {
                     Ok(num) => $v.set_major(num),
                     _ => {
-                        return Err(Error {
-                            input: $input,
+                        return Err(InternalError {
+                            state: $state,
                             error: ErrorKind::NumberOverflow,
                             span: Span::new($start, $index),
                         });
@@ -672,8 +715,8 @@ macro_rules! accept {
                 Accept::RequireMinor => match $input[$start..$index].parse::<u64>() {
                     Ok(num) => $v.set_minor(num),
                     _ => {
-                        return Err(Error {
-                            input: $input,
+                        return Err(InternalError {
+                            state: $state,
                             error: ErrorKind::NumberOverflow,
                             span: Span::new($start, $index),
                         });
@@ -695,8 +738,8 @@ macro_rules! accept {
                 Accept::RequirePatch => match $input[$start..$index].parse::<u64>() {
                     Ok(num) => $v.set_patch(num),
                     _ => {
-                        return Err(Error {
-                            input: $input,
+                        return Err(InternalError {
+                            state: $state,
                             error: ErrorKind::NumberOverflow,
                             span: Span::new($start, $index),
                         });
@@ -718,8 +761,8 @@ macro_rules! accept {
                     let segment = &$input[$start..$index];
                     if is_release_identifier(segment) {
                         if $new_state < State::EndOfInput {
-                            return Err(Error {
-                                input: $input,
+                            return Err(InternalError {
+                                state: $state,
                                 error: ErrorKind::UnexpectedInput,
                                 span: span_from($input, $index),
                             });
@@ -733,10 +776,11 @@ macro_rules! accept {
                     $v.add_build(&$input[$start..$index]);
                 }
                 Accept::ErrorMissing => {
-                    let span = if $index < $input.len() {
-                        span_from($input, $index)
+                    let start_index = start_index!($index, $partial, $state);
+                    let span = if start_index < $input.len() {
+                        span_from($input, start_index)
                     } else {
-                        Span::new($index, $index)
+                        Span::new(start_index, start_index)
                     };
                     let error = match $state {
                         State::ExpectMajor | State::RequireMajor => ErrorKind::MissingMajorNumber,
@@ -746,20 +790,109 @@ macro_rules! accept {
                         State::ExpectBuild => ErrorKind::MissingBuild,
                         _ => unreachable!(),
                     };
-                    return Err(Error {
-                        input: $input,
+                    return Err(InternalError {
+                        state: $state,
                         error,
                         span,
                     });
                 }
                 Accept::ErrorUnexpected => {
-                    return Err(Error {
-                        input: $input,
+                    accepts_partial!($index, $state, $start, $v, $input);
+                    let start_index = start_index!($index, $partial, $state);
+                    return Err(InternalError {
+                        state: $state,
                         error: ErrorKind::UnexpectedInput,
-                        span: span_from($input, $index),
+                        span: span_from($input, start_index),
                     });
                 }
             }
+        }
+    };
+}
+
+macro_rules! accepts_partial {
+    (
+        $index: ident,
+        $state: ident,
+        $start: ident,
+        $v: ident,
+        $input: ident
+    ) => {
+        #[allow(unused_assignments)]
+        {
+            match $state {
+                State::RequireMajor => {
+                    if let Ok(num) = $input[$start..$index].parse::<u64>() {
+                        $v.set_major(num)
+                    }
+                }
+                State::ParseMajor => match $input[$start..$index].parse::<u64>() {
+                    Ok(num) => $v.set_major(num),
+                    _ => {
+                        return Err(InternalError {
+                            state: $state,
+                            error: ErrorKind::NumberOverflow,
+                            span: Span::new($start, $index),
+                        });
+                    }
+                },
+                State::ParseMinor => {
+                    let segment = &$input[$start..$index];
+                    match segment.parse::<u64>() {
+                        Ok(num) => $v.set_minor(num),
+                        _ => $v.add_pre_release(segment),
+                    }
+                }
+                State::ParsePatch => {
+                    let segment = &$input[$start..$index];
+                    match segment.parse::<u64>() {
+                        Ok(num) => $v.set_patch(num),
+                        _ => $v.add_pre_release(segment),
+                    }
+                }
+                State::ParseAdd => {
+                    let segment = &$input[$start..$index];
+                    match segment.parse::<u64>() {
+                        Ok(num) => $v.add_additional(num),
+                        _ => $v.add_pre_release(segment),
+                    }
+                }
+                State::ParsePre => {
+                    let segment = &$input[$start..$index];
+                    if is_release_identifier(segment) {
+                        $v.add_build(segment);
+                    } else {
+                        $v.add_pre_release(segment);
+                    }
+                }
+                State::ParseBuild => {
+                    $v.add_build(&$input[$start..$index]);
+                }
+                _ => {}
+            }
+        }
+    };
+}
+
+macro_rules! start_index {
+    (
+        $index: ident,
+        $partial: ident,
+        $state: ident
+    ) => {
+        if $partial
+            && matches!(
+                $state,
+                State::ExpectMinor
+                    | State::ExpectPatch
+                    | State::ExpectAdd
+                    | State::ExpectPre
+                    | State::ExpectBuild
+            )
+        {
+            $index - 1
+        } else {
+            $index
         }
     };
 }
@@ -773,19 +906,76 @@ fn parse_internal<'input, V>(
 where
     V: VersionBuilder<'input>,
 {
-    let mut start = 0_usize;
     let mut v = V::new();
+
+    match try_parse_internal(input, &mut v, false, dfa, lookup) {
+        Ok(_) => Ok(v.build()),
+        Err(err) => Err(Error {
+            input,
+            span: err.span,
+            error: err.error,
+        }),
+    }
+}
+
+#[inline]
+fn parse_partial_internal<'input, V>(
+    input: &'input str,
+    dfa: &Dfa,
+    lookup: &Lookup,
+) -> Result<(V::Out, &'input str), Error<'input>>
+where
+    V: VersionBuilder<'input>,
+{
+    let mut v = V::new();
+    match try_parse_internal(input, &mut v, true, dfa, lookup) {
+        Ok(_) => Ok((v.build(), "")),
+        Err(err) => {
+            let keep_error = match err.state {
+                State::ExpectMajor | State::RequireMajor => matches!(
+                    err.error,
+                    ErrorKind::UnexpectedInput | ErrorKind::MissingMajorNumber,
+                ),
+                State::ParseMajor => err.error == ErrorKind::NumberOverflow,
+                _ => false,
+            };
+
+            if keep_error {
+                Err(Error {
+                    input,
+                    span: err.span,
+                    error: err.error,
+                })
+            } else {
+                Ok((v.build(), &input[err.span.start..]))
+            }
+        }
+    }
+}
+
+#[inline]
+fn try_parse_internal<'input, V>(
+    input: &'input str,
+    v: &mut V,
+    partial: bool,
+    dfa: &Dfa,
+    lookup: &Lookup,
+) -> Result<(), InternalError>
+where
+    V: VersionBuilder<'input>,
+{
+    let mut start = 0_usize;
     let mut state = State::ExpectMajor;
 
     for (index, b) in input.bytes().enumerate() {
         let (mut new_state, accepts) = transduce(lookup, dfa, state, b);
-        accept!(accepts, index, b, state, new_state, start, v, num, input);
+        accepts!(accepts, index, partial, state, new_state, start, v, num, input);
         state = new_state;
     }
     let (mut new_state, accepts) = transition(dfa, state, Class::EndOfInput);
     let index = input.len();
-    accept!(accepts, index, b, state, new_state, start, v, num, input);
-    Ok(v.build())
+    accepts!(accepts, index, partial, state, new_state, start, v, num, input);
+    Ok(())
 }
 
 // This constant maps the first 5 bits of a code unit to the one less than the length in utf-8.
@@ -1331,6 +1521,22 @@ mod tests {
         parse::<Version>(input)
     }
 
+    #[test_case("1,2" => Ok((vers!(1 . 0 . 0 ), ",2")))]
+    #[test_case("2, 3" => Ok((vers!(2 . 0 . 0), ", 3")))]
+    #[test_case("3 , 4" => Ok((vers!(3 . 0 . 0), ", 4")))]
+    #[test_case("1.2.3-2.3.4" => Ok((vers!(1 . 2 . 3 - 2 - 3 - 4), "")))]
+    #[test_case("2.3.4 - 4.5.6" => Ok((vers!(2 . 3 . 4), "- 4.5.6")))]
+    #[test_case("1.x.3 || 3.4.5" => Ok((vers!(1 . 0 . 0 - "x" - 3), "|| 3.4.5")))]
+    #[test_case("1.2,a" => Ok((vers!(1 . 2 . 0), ",a")))]
+    #[test_case("1.2.3,b" => Ok((vers!(1 . 2 . 3), ",b")))]
+    #[test_case("1.2a,c" => Ok((vers!(1 . 0 . 0 - "2a"), ",c")))]
+    #[test_case("1.2.a,d" => Ok((vers!(1 . 2 . 0 - "a"), ",d")))]
+    #[test_case("1.2-a,e" => Ok((vers!(1 . 2 . 0 - "a"), ",e")))]
+    #[test_case("1.2.3+a,f" => Ok((vers!(1 . 2 . 3 + "a"), ",f")))]
+    fn test_parse_partial(input: &str) -> Result<(Version, &str), Error<'_>> {
+        parse_partial::<Version>(input)
+    }
+
     #[test_case("" => Err((ErrorKind::MissingMajorNumber, Span::new(0, 0))); "empty input")]
     #[test_case("  " => Err((ErrorKind::MissingMajorNumber, Span::new(2, 2))); "whitespace input")]
     #[test_case("." => Err((ErrorKind::UnexpectedInput, Span::new(0, 1))); "dot")]
@@ -1411,6 +1617,52 @@ mod tests {
 "#)]
     fn test_full_errors(input: &str) -> String {
         format!("{:#}", parse::<Version>(input).unwrap_err())
+    }
+
+    #[test_case("" => Err((ErrorKind::MissingMajorNumber, Span::new(0, 0))); "empty input")]
+    #[test_case("  " => Err((ErrorKind::MissingMajorNumber, Span::new(2, 2))); "whitespace input")]
+    #[test_case("." => Err((ErrorKind::UnexpectedInput, Span::new(0, 1))); "dot")]
+    #[test_case("🙈" => Err((ErrorKind::UnexpectedInput, Span::new(0, 4))); "emoji")]
+    #[test_case("v" => Err((ErrorKind::MissingMajorNumber, Span::new(1, 1))); "v")]
+    #[test_case("val" => Err((ErrorKind::UnexpectedInput, Span::new(1, 2))); "val")]
+    #[test_case("v🙈" => Err((ErrorKind::UnexpectedInput, Span::new(1, 5))); "v-emoji")]
+    #[test_case("v.1.2.3" => Err((ErrorKind::UnexpectedInput, Span::new(1, 2))); "v followed by dot")]
+    #[test_case("v-2.3.4" => Err((ErrorKind::UnexpectedInput, Span::new(1, 2))); "v followed by hyphen")]
+    #[test_case("v+3.4.5" => Err((ErrorKind::UnexpectedInput, Span::new(1, 2))); "v followed by plus")]
+    #[test_case("vv1.2.3" => Err((ErrorKind::UnexpectedInput, Span::new(1, 2))); "v followed by v")]
+    #[test_case("v v1.2.3" => Err((ErrorKind::UnexpectedInput, Span::new(1, 2))); "v followed by whitespace")]
+    #[test_case("a1.2.3" => Err((ErrorKind::UnexpectedInput, Span::new(0, 1))); "starting with a-1")]
+    #[test_case("a.b.c" => Err((ErrorKind::UnexpectedInput, Span::new(0, 1))); "starting with a-dot")]
+    #[test_case("123456789012345678901234567890" => Err((ErrorKind::NumberOverflow, Span::new(0, 30))); "number overflows u64")]
+    fn test_partial_simple_errors(input: &str) -> Result<(Version, &str), (ErrorKind, Span)> {
+        parse_partial::<Version>(input).map_err(|e| (e.error, e.span))
+    }
+
+    #[test_case("1." => Ok((vers!(1 . 0 . 0), ".")); "eoi after major")]
+    #[test_case("1. " => Ok((vers!(1 . 0 . 0), ". ")); "whitespace after major")]
+    #[test_case("1🙈" => Ok((vers!(1 . 0 . 0), "🙈")); "1-emoji")]
+    #[test_case("1.2." => Ok((vers!(1 . 2 . 0), ".")); "eoi after minor")]
+    #[test_case("1.2. " => Ok((vers!(1 . 2 . 0), ". ")); "whitespace after minor")]
+    #[test_case("1.2.3-" => Ok((vers!(1 . 2 . 3), "-")); "eoi after hyphen")]
+    #[test_case("1.2.3- " => Ok((vers!(1 . 2 . 3), "- ")); "whitespace after hyphen")]
+    #[test_case("1.2.3.4-" => Ok((vers!(1 . 2 . 3 + 4), "-")); "eoi after additional")]
+    #[test_case("1.2.3.4- " => Ok((vers!(1 . 2 . 3 + 4), "- ")); "whitespace after additional")]
+    #[test_case("1.2.3+" => Ok((vers!(1 . 2 . 3), "+")); "eoi after plus")]
+    #[test_case("1.2.3+ " => Ok((vers!(1 . 2 . 3), "+ ")); "whitespace after plus")]
+    #[test_case("1.2.3-." => Ok((vers!(1 . 2 . 3), "-.")); "pre release trailing dot")]
+    #[test_case("1.2.3--" => Ok((vers!(1 . 2 . 3), "--")); "pre release trailing hyphen")]
+    #[test_case("1.2.3-+" => Ok((vers!(1 . 2 . 3), "-+")); "pre release trailing plus")]
+    #[test_case("1.2.3-🙈" => Ok((vers!(1 . 2 . 3), "-🙈")); "pre release trailing emoji")]
+    #[test_case("1.2.3+." => Ok((vers!(1 . 2 . 3), "+.")); "build trailing dot")]
+    #[test_case("1.2.3+-" => Ok((vers!(1 . 2 . 3), "+-")); "build trailing hyphen")]
+    #[test_case("1.2.3++" => Ok((vers!(1 . 2 . 3), "++")); "build trailing plus")]
+    #[test_case("1.2.3-🙈" => Ok((vers!(1 . 2 . 3), "-🙈")); "build trailing emoji")]
+    #[test_case("1.+.0" => Ok((vers!(1 . 0 . 0), ".+.0")); "plus as minor")]
+    #[test_case("1.2.." => Ok((vers!(1 . 2 . 0), "..")); "dot as patch")]
+    #[test_case("1 abc" => Ok((vers!(1 . 0 . 0), "abc")); "a following parsed number 1")]
+    #[test_case("1.2.3 abc" => Ok((vers!(1 . 2 . 3), "abc")); "a following parsed number 1.2.3")]
+    fn test_partial_non_errors(input: &str) -> Result<(Version, &str), (ErrorKind, Span)> {
+        parse_partial::<Version>(input).map_err(|e| (e.error, e.span))
     }
 
     #[test_case("Final"; "final pascal")]
@@ -1500,6 +1752,40 @@ pub mod strict {
         V: VersionBuilder<'input>,
     {
         parse_internal::<V>(input, &STRICT_DFA, &LOOKUP)
+    }
+
+    /// Parse a string slice into a Version without failing on unexpected input.
+    ///
+    /// This function tries to parse the string into a version and then stops when the input
+    /// no longer parsed into a version. The remainder if the input is returned alongside the version.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use semver::Version;
+    ///
+    /// assert_eq!(
+    ///     lenient_semver_parser::strict::parse_partial::<Version>("1.2.3 and the rest").unwrap(),
+    ///     (Version::new(1, 2, 3), "and the rest")
+    /// );
+    ///
+    /// assert_eq!(
+    ///     lenient_semver_parser::strict::parse_partial::<Version>("1,2").unwrap(),
+    ///     (Version::new(1, 0, 0), ",2")
+    /// );
+    ///
+    /// assert_eq!(
+    ///     lenient_semver_parser::strict::parse_partial::<Version>("1 - 2").unwrap(),
+    ///     (Version::new(1, 0, 0), " - 2")
+    /// );
+    /// ```
+    pub fn parse_partial<'input, V>(
+        input: &'input str,
+    ) -> Result<(V::Out, &'input str), Error<'input>>
+    where
+        V: VersionBuilder<'input>,
+    {
+        parse_partial_internal::<V>(input, &STRICT_DFA, &LOOKUP)
     }
 
     static STRICT_DFA: Dfa = strict_dfa();
