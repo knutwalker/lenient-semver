@@ -448,21 +448,21 @@ impl Display for Version<'_> {
 
         let mut pre = self.pre.iter();
         if let Some(pre) = pre.next() {
-            result.push_str("-");
+            result.push('-');
             result.push_str(pre);
         }
         for pre in pre {
-            result.push_str(".");
+            result.push('.');
             result.push_str(pre);
         }
 
         let mut build = self.build.iter();
         if let Some(build) = build.next() {
-            result.push_str("+");
+            result.push('+');
             result.push_str(build);
         }
         for build in build {
-            result.push_str(".");
+            result.push('.');
             result.push_str(build);
         }
 

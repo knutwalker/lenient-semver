@@ -450,7 +450,7 @@ pub use lenient_version::{Version, Version as VersionLite};
 /// This method is fixes to return a [`semver::Version`].
 /// A more flexible variant is [`lenient_semver::parse_into`].
 #[cfg(feature = "semver11")]
-pub fn parse<'input>(input: &'input str) -> Result<semver::Version, parser::Error<'input>> {
+pub fn parse(input: &str) -> Result<semver::Version, parser::Error> {
     parser::parse::<semver::Version>(input)
 }
 

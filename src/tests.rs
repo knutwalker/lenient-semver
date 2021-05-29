@@ -101,9 +101,9 @@ mod builder_as_validation_test {
 
     #[test]
     fn test_custom_version_validation() {
-        assert!(is_pre_release("1.2.3-pre") == true);
-        assert!(is_pre_release("1.2.3") == false);
-        assert!(is_pre_release("1.2.3+build") == false);
+        assert!(is_pre_release("1.2.3-pre"));
+        assert!(!is_pre_release("1.2.3"));
+        assert!(!is_pre_release("1.2.3+build"));
     }
 }
 

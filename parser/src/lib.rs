@@ -2118,7 +2118,7 @@ pub mod generator {
         struct Node {
             name: String,
             accepts: bool,
-        };
+        }
         struct Edge {
             from: State,
             to: State,
