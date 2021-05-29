@@ -132,7 +132,7 @@ pub fn parse_partial<'input, V>(input: &'input str) -> Result<(V::Out, &'input s
 where
     V: VersionBuilder<'input>,
 {
-    parse_partial_internal::<V>(input, &DFA, &LOOKUP)
+    parse_partial_internal::<V>(input, &DFA, &EXTRA_LOOKUP)
 }
 
 /// Trait to abstract over version building.
@@ -1099,7 +1099,7 @@ enum Accept {
 
 type Lookup = [Class; 256];
 
-const fn class_lookup() -> Lookup {
+const fn class_lookup(include_extra_alpha: bool) -> Lookup {
     let error_class = Class::Unexpected;
     let mut table = [error_class; 256];
     let mut c = 0_usize;
@@ -1112,6 +1112,8 @@ const fn class_lookup() -> Lookup {
             '0'..='9' => Class::Number,
             'A'..='Z' | 'a'..='z' => Class::Alpha,
             '\t' | '\n' | '\x0C' | '\r' | ' ' => Class::Whitespace,
+            '*' if include_extra_alpha => Class::Alpha,
+            '?' if include_extra_alpha => Class::Alpha,
             _ => Class::Unexpected,
         };
         table[c] = class;
@@ -1262,7 +1264,8 @@ const fn dfa() -> Dfa {
     (transitions, accepts)
 }
 
-static LOOKUP: Lookup = class_lookup();
+static LOOKUP: Lookup = class_lookup(false);
+static EXTRA_LOOKUP: Lookup = class_lookup(true);
 static DFA: Dfa = dfa();
 
 #[inline(always)]
@@ -1537,6 +1540,20 @@ mod tests {
         parse_partial::<Version>(input)
     }
 
+    #[test_case("1.*" => Ok(vers!(1 . 0 . 0 - "*")))]
+    #[test_case("1.2.*" => Ok(vers!(1 . 2 . 0 - "*")))]
+    #[test_case("1.2.3.*" => Ok(vers!(1 . 2 . 3 - "*")))]
+    #[test_case("1.2.4.***" => Ok(vers!(1 . 2 . 4 - "***")))]
+    #[test_case("1.2.5-a*b*c" => Ok(vers!(1 . 2 . 5 - "a*b*c")))]
+    #[test_case("2.?" => Ok(vers!(2 . 0 . 0 - "?")))]
+    #[test_case("2.2.?" => Ok(vers!(2 . 2 . 0 - "?")))]
+    #[test_case("2.2.3.?" => Ok(vers!(2 . 2 . 3 - "?")))]
+    #[test_case("2.2.4.???" => Ok(vers!(2 . 2 . 4 - "???")))]
+    #[test_case("2.2.5-a?b?c" => Ok(vers!(2 . 2 . 5 - "a?b?c")))]
+    fn test_parse_partial_extend_alpha(input: &str) -> Result<Version, Error<'_>> {
+        parse_partial::<Version>(input).map(|(v, _)| v)
+    }
+
     #[test_case("" => Err((ErrorKind::MissingMajorNumber, Span::new(0, 0))); "empty input")]
     #[test_case("  " => Err((ErrorKind::MissingMajorNumber, Span::new(2, 2))); "whitespace input")]
     #[test_case("." => Err((ErrorKind::UnexpectedInput, Span::new(0, 1))); "dot")]
@@ -1575,6 +1592,12 @@ mod tests {
     #[test_case("123456789012345678901234567890" => Err((ErrorKind::NumberOverflow, Span::new(0, 30))); "number overflows u64")]
     #[test_case("1 abc" => Err((ErrorKind::UnexpectedInput, Span::new(2, 3))); "a following parsed number 1")]
     #[test_case("1.2.3 abc" => Err((ErrorKind::UnexpectedInput, Span::new(6, 7))); "a following parsed number 1.2.3")]
+    #[test_case("1.*" => Err((ErrorKind::UnexpectedInput, Span::new(2, 3))); "asterisk as early pre")]
+    #[test_case("1.2.3-*" => Err((ErrorKind::UnexpectedInput, Span::new(6, 7))); "asterisk as explicit pre")]
+    #[test_case("1.2.3-ab*" => Err((ErrorKind::UnexpectedInput, Span::new(8, 9))); "asterisk within pre")]
+    #[test_case("1.?" => Err((ErrorKind::UnexpectedInput, Span::new(2, 3))); "question mark as early pre")]
+    #[test_case("1.2.3-?" => Err((ErrorKind::UnexpectedInput, Span::new(6, 7))); "question mark as explicit pre")]
+    #[test_case("1.2.3-ab?" => Err((ErrorKind::UnexpectedInput, Span::new(8, 9))); "question mark within pre")]
     fn test_simple_errors(input: &str) -> Result<Version, (ErrorKind, Span)> {
         parse::<Version>(input).map_err(|e| (e.error, e.span))
     }
