@@ -359,4 +359,71 @@ assert_eq!(dep.version, expected);
 drop(input);
 ```
 
+##### `parse_partial`
+
+```toml
+lenient_semver = { version = "*", features = [ "parse_partial" ] }
+```
+
+This feature enables the `partial` feature of the parser.
+The partial parser will not try to consume all input.
+Instead it parses the version as far as possible and will return the unconsumed input alongside the parsed version.
+
+```rust
+use lenient_semver::{Version, VersionBuilder, parser};
+let input = "1.2.3   42+build 1.3.3.7 // end";
+
+// parse first version
+let (version, remainder) = parser::parse_partial::<Version>(input).unwrap();
+let expected = Version::new(1, 2, 3);
+assert_eq!(version, expected);
+// trailing whitespace is considered part of a version and consumed as well
+assert_eq!("42+build 1.3.3.7 // end", remainder);
+
+// parse second version
+let (version, remainder) = parser::parse_partial::<Version>(remainder).unwrap();
+let mut expected = Version::new(42, 0, 0);
+expected.add_build("build");
+assert_eq!(version, expected);
+assert_eq!("1.3.3.7 // end", remainder);
+
+// parse last version
+let (version, remainder) = parser::parse_partial::<Version>(remainder).unwrap();
+let mut expected = Version::new(1, 3, 3);
+expected.add_additional(7);
+assert_eq!(version, expected);
+assert_eq!("// end", remainder);
+
+// parse partial still expects to parse something.
+// It will fail with `UnexpectedInput` or `MissingMajorNumber` if the input does not match at least a major version.
+// let's try to parse the remaining input
+let error = parser::parse_partial::<Version>(remainder).unwrap_err();
+assert_eq!(error.error_kind(), parser::ErrorKind::UnexpectedInput);
+assert_eq!(error.error_line(), "Unexpected `/`");
+
+// or an empty string
+let error = parser::parse_partial::<Version>("         ").unwrap_err();
+assert_eq!(error.error_kind(), parser::ErrorKind::MissingMajorNumber);
+assert_eq!(
+    error.error_line(),
+    "Could not parse the major identifier: No input"
+);
+
+// The rules of when a certain number will be parsed are even more relaxed
+let (version, remainder) = parser::parse_partial::<Version>("1foobar").unwrap();
+let expected = Version::new(1, 0, 0);
+assert_eq!(version, expected);
+assert_eq!(remainder, "foobar");
+
+// Furthermore, the characters `*` and `?` are allowed to appear everywhere where other alphabetic character are allowed.
+// This relaxes the rule that only a-z, A-Z, and 0-9 are allowed.
+// Those characters have no special meaning and will be parsed as pre-release or build segment.
+let (version, remainder) = parser::parse_partial::<Version>("1.2.*+final?").unwrap();
+let mut expected = Version::new(1, 2, 0);
+expected.add_pre_release("*");
+expected.add_build("final?");
+assert_eq!(version, expected);
+assert_eq!(remainder, "");
+```
+
 License: MIT OR Apache-2.0

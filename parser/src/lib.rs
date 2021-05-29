@@ -128,6 +128,7 @@ where
 ///     (Version::new(1, 0, 0), "- 2")
 /// );
 /// ```
+#[cfg(feature = "partial")]
 pub fn parse_partial<'input, V>(input: &'input str) -> Result<(V::Out, &'input str), Error<'input>>
 where
     V: VersionBuilder<'input>,
@@ -918,6 +919,7 @@ where
     }
 }
 
+#[cfg(feature = "partial")]
 #[inline]
 fn parse_partial_internal<'input, V>(
     input: &'input str,
@@ -1265,6 +1267,7 @@ const fn dfa() -> Dfa {
 }
 
 static LOOKUP: Lookup = class_lookup(false);
+#[cfg(feature = "partial")]
 static EXTRA_LOOKUP: Lookup = class_lookup(true);
 static DFA: Dfa = dfa();
 
@@ -1536,6 +1539,7 @@ mod tests {
     #[test_case("1.2.a,d" => Ok((vers!(1 . 2 . 0 - "a"), ",d")))]
     #[test_case("1.2-a,e" => Ok((vers!(1 . 2 . 0 - "a"), ",e")))]
     #[test_case("1.2.3+a,f" => Ok((vers!(1 . 2 . 3 + "a"), ",f")))]
+    #[cfg(feature = "partial")]
     fn test_parse_partial(input: &str) -> Result<(Version, &str), Error<'_>> {
         parse_partial::<Version>(input)
     }
@@ -1550,6 +1554,7 @@ mod tests {
     #[test_case("2.2.3.?" => Ok(vers!(2 . 2 . 3 - "?")))]
     #[test_case("2.2.4.???" => Ok(vers!(2 . 2 . 4 - "???")))]
     #[test_case("2.2.5-a?b?c" => Ok(vers!(2 . 2 . 5 - "a?b?c")))]
+    #[cfg(feature = "partial")]
     fn test_parse_partial_extend_alpha(input: &str) -> Result<Version, Error<'_>> {
         parse_partial::<Version>(input).map(|(v, _)| v)
     }
@@ -1657,6 +1662,7 @@ mod tests {
     #[test_case("a1.2.3" => Err((ErrorKind::UnexpectedInput, Span::new(0, 1))); "starting with a-1")]
     #[test_case("a.b.c" => Err((ErrorKind::UnexpectedInput, Span::new(0, 1))); "starting with a-dot")]
     #[test_case("123456789012345678901234567890" => Err((ErrorKind::NumberOverflow, Span::new(0, 30))); "number overflows u64")]
+    #[cfg(feature = "partial")]
     fn test_partial_simple_errors(input: &str) -> Result<(Version, &str), (ErrorKind, Span)> {
         parse_partial::<Version>(input).map_err(|e| (e.error, e.span))
     }
@@ -1684,6 +1690,7 @@ mod tests {
     #[test_case("1.2.." => Ok((vers!(1 . 2 . 0), "..")); "dot as patch")]
     #[test_case("1 abc" => Ok((vers!(1 . 0 . 0), "abc")); "a following parsed number 1")]
     #[test_case("1.2.3 abc" => Ok((vers!(1 . 2 . 3), "abc")); "a following parsed number 1.2.3")]
+    #[cfg(feature = "partial")]
     fn test_partial_non_errors(input: &str) -> Result<(Version, &str), (ErrorKind, Span)> {
         parse_partial::<Version>(input).map_err(|e| (e.error, e.span))
     }
@@ -1802,6 +1809,7 @@ pub mod strict {
     ///     (Version::new(1, 0, 0), " - 2")
     /// );
     /// ```
+    #[cfg(feature = "partial")]
     pub fn parse_partial<'input, V>(
         input: &'input str,
     ) -> Result<(V::Out, &'input str), Error<'input>>
