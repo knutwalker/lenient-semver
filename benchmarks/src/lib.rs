@@ -173,14 +173,11 @@ mod tests {
     }
 
     fn expected_xl_lite() -> VersionLite<'static> {
-        VersionLite {
-            major: 1,
-            minor: 2,
-            patch: 3,
-            additional: Vec::new(),
-            pre: vec!["1", "alpha1", "9"],
-            build: vec!["build5", "7", "3aedf", "01337"],
-        }
+        use lenient_semver_parser::VersionBuilder;
+        let mut v = VersionLite::new(1, 2, 3);
+        v.add_pre_release("1.alpha1.9");
+        v.add_build("build5.7.3aedf.01337");
+        v
     }
 
     fn expected_xl_lite_02() -> VersionLite02<'static> {

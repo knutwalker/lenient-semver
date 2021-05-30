@@ -38,12 +38,16 @@ use std::{
     cmp::Ordering,
     fmt::{self, Display, Write},
     hash,
+    ops::Deref,
 };
+
+mod metadata;
+pub use metadata::{Additional, Build, PreRelease};
 
 /// Represents a lenient semantic version number.
 ///
 /// The version is bound to the lifetime of the input string.
-#[derive(Debug, Clone, Eq)]
+#[derive(Debug, Clone)]
 pub struct Version<'input> {
     /// The major version.
     pub major: u64,
@@ -52,11 +56,11 @@ pub struct Version<'input> {
     /// The patch version.
     pub patch: u64,
     /// additional version numbers.
-    pub additional: Vec<u64>,
+    pub additional: Additional,
     /// The pre-release metadata.
-    pub pre: Vec<&'input str>,
+    pub pre: PreRelease<'input>,
     /// The build metadata.
-    pub build: Vec<&'input str>,
+    pub build: Build<'input>,
 }
 
 impl<'input> Version<'input> {
@@ -74,9 +78,9 @@ impl<'input> Version<'input> {
             major: 0,
             minor: 0,
             patch: 0,
-            additional: Vec::new(),
-            pre: Vec::new(),
-            build: Vec::new(),
+            additional: Additional::empty(),
+            pre: PreRelease::empty(),
+            build: Build::empty(),
         }
     }
 
@@ -94,9 +98,9 @@ impl<'input> Version<'input> {
             major,
             minor,
             patch,
-            additional: Vec::new(),
-            pre: Vec::new(),
-            build: Vec::new(),
+            additional: Additional::empty(),
+            pre: PreRelease::empty(),
+            build: Build::empty(),
         }
     }
 
@@ -136,7 +140,7 @@ impl<'input> Version<'input> {
         self.major += 1;
         self.minor = 0;
         self.patch = 0;
-        self.additional.iter_mut().for_each(|n| *n = 0);
+        self.additional.set_to_zero();
         self.clear_metadata();
     }
 
@@ -158,9 +162,9 @@ impl<'input> Version<'input> {
             major: self.major + 1,
             minor: 0,
             patch: 0,
-            additional: vec![0; self.additional.len()],
-            pre: Vec::new(),
-            build: Vec::new(),
+            additional: self.additional.clone_with_zeroes(),
+            pre: PreRelease::empty(),
+            build: Build::empty(),
         }
     }
 
@@ -180,7 +184,7 @@ impl<'input> Version<'input> {
     pub fn bump_minor(&mut self) {
         self.minor += 1;
         self.patch = 0;
-        self.additional.iter_mut().for_each(|n| *n = 0);
+        self.additional.set_to_zero();
         self.clear_metadata();
     }
 
@@ -202,9 +206,9 @@ impl<'input> Version<'input> {
             major: self.major,
             minor: self.minor + 1,
             patch: 0,
-            additional: vec![0; self.additional.len()],
-            pre: Vec::new(),
-            build: Vec::new(),
+            additional: self.additional.clone_with_zeroes(),
+            pre: PreRelease::empty(),
+            build: Build::empty(),
         }
     }
 
@@ -223,7 +227,7 @@ impl<'input> Version<'input> {
     /// ```
     pub fn bump_patch(&mut self) {
         self.patch += 1;
-        self.additional.iter_mut().for_each(|n| *n = 0);
+        self.additional.set_to_zero();
         self.clear_metadata();
     }
 
@@ -245,9 +249,9 @@ impl<'input> Version<'input> {
             major: self.major,
             minor: self.minor,
             patch: self.patch + 1,
-            additional: vec![0; self.additional.len()],
-            pre: Vec::new(),
-            build: Vec::new(),
+            additional: self.additional.clone_with_zeroes(),
+            pre: PreRelease::empty(),
+            build: Build::empty(),
         }
     }
 
@@ -274,11 +278,7 @@ impl<'input> Version<'input> {
     /// assert_eq!(version.to_string(), "1.2.3.4.5");
     /// ```
     pub fn bump_additional(&mut self, index: usize) {
-        let mut add = self.additional.iter_mut().skip(index);
-        if let Some(add) = add.next() {
-            *add += 1;
-        }
-        add.for_each(|n| *n = 0);
+        self.additional.bump(index);
         self.clear_metadata();
     }
 
@@ -298,16 +298,16 @@ impl<'input> Version<'input> {
     /// assert_eq!(version.bumped_additional(2).to_string(), "1.2.3.4.5");
     /// ```
     pub fn bumped_additional<'a>(&self, index: usize) -> Version<'a> {
-        let mut version = Version {
+        let mut additional = self.additional.clone();
+        additional.bump(index);
+        Version {
             major: self.major,
             minor: self.minor,
             patch: self.patch,
-            additional: self.additional.clone(),
-            pre: Vec::new(),
-            build: Vec::new(),
-        };
-        version.bump_additional(index);
-        version
+            additional,
+            pre: PreRelease::empty(),
+            build: Build::empty(),
+        }
     }
 
     /// Returns true if this version has pre-release metadata, i.e. it represents a pre-release.
@@ -327,7 +327,7 @@ impl<'input> Version<'input> {
     /// assert!(!version.is_pre_release());
     /// ```
     pub fn is_pre_release(&self) -> bool {
-        !self.pre.is_empty()
+        self.pre.is_defined()
     }
 
     /// Disassociate this Version by changing the lifetime to something new.
@@ -352,8 +352,8 @@ impl<'input> Version<'input> {
     ///
     /// let (mut version, pre, build) = version.disassociate_metadata::<'static>();
     ///
-    /// assert_eq!(vec!["pre"], pre);
-    /// assert_eq!(vec!["build"], build);
+    /// assert_eq!(Some("pre"), *pre);
+    /// assert_eq!(Some("build"), *build);
     ///
     /// // now we can drop the input
     /// drop(input);
@@ -367,16 +367,22 @@ impl<'input> Version<'input> {
     ///
     /// assert_eq!("1.0.0-pre2+build2", version.to_string());
     /// ```
-    pub fn disassociate_metadata<'a>(self) -> (Version<'a>, Vec<&'input str>, Vec<&'input str>) {
-        let pre = self.pre;
-        let build = self.build;
+    pub fn disassociate_metadata<'a>(self) -> (Version<'a>, PreRelease<'input>, Build<'input>) {
+        let Version {
+            major,
+            minor,
+            patch,
+            additional,
+            pre,
+            build,
+        } = self;
         let version = Version {
-            major: self.major,
-            minor: self.minor,
-            patch: self.patch,
-            additional: self.additional,
-            pre: Vec::new(),
-            build: Vec::new(),
+            major,
+            minor,
+            patch,
+            additional,
+            pre: PreRelease::empty(),
+            build: Build::empty(),
         };
         (version, pre, build)
     }
@@ -446,23 +452,12 @@ impl Display for Version<'_> {
             write!(result, ".{}", additional)?;
         }
 
-        let mut pre = self.pre.iter();
-        if let Some(pre) = pre.next() {
+        if let Some(pre) = self.pre.deref() {
             result.push('-');
             result.push_str(pre);
         }
-        for pre in pre {
-            result.push('.');
-            result.push_str(pre);
-        }
-
-        let mut build = self.build.iter();
-        if let Some(build) = build.next() {
+        if let Some(build) = self.build.deref() {
             result.push('+');
-            result.push_str(build);
-        }
-        for build in build {
-            result.push('.');
             result.push_str(build);
         }
 
@@ -481,6 +476,8 @@ impl PartialEq for Version<'_> {
     }
 }
 
+impl Eq for Version<'_> {}
+
 impl PartialOrd for Version<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
@@ -493,76 +490,8 @@ impl Ord for Version<'_> {
             .cmp(&other.major)
             .then_with(|| self.minor.cmp(&other.minor))
             .then_with(|| self.patch.cmp(&other.patch))
-            .then_with(|| cmp_additional(&self.additional, &other.additional))
-            .then_with(|| cmp_pre(&self.pre, &other.pre))
-    }
-}
-
-fn cmp_additional(a: &[u64], b: &[u64]) -> Ordering {
-    AdditionalCmp {
-        a: a.iter(),
-        b: b.iter(),
-    }
-    .find(|c| *c != Ordering::Equal)
-    .unwrap_or(Ordering::Equal)
-}
-
-fn cmp_pre<'input>(a: &[&'input str], b: &[&'input str]) -> Ordering {
-    match (a.is_empty(), b.is_empty()) {
-        (true, true) => Ordering::Equal,
-        (true, false) => Ordering::Greater,
-        (false, true) => Ordering::Less,
-        (false, false) => PreCmp {
-            a: a.iter(),
-            b: b.iter(),
-        }
-        .find(|c| *c != Ordering::Equal)
-        .unwrap_or(Ordering::Equal),
-    }
-}
-
-struct AdditionalCmp<'a, 'b> {
-    a: std::slice::Iter<'a, u64>,
-    b: std::slice::Iter<'b, u64>,
-}
-
-impl<'a, 'b> Iterator for AdditionalCmp<'a, 'b> {
-    type Item = Ordering;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match (self.a.next(), self.b.next()) {
-            (None, None) => None,
-            (Some(a), None) => Some(a.cmp(&0)),
-            (None, Some(b)) => Some(0.cmp(b)),
-            (Some(a), Some(b)) => Some(a.cmp(b)),
-        }
-    }
-}
-
-struct PreCmp<'a, 'b, 'input> {
-    a: std::slice::Iter<'a, &'input str>,
-    b: std::slice::Iter<'b, &'input str>,
-}
-
-impl<'a, 'b, 'input> Iterator for PreCmp<'a, 'b, 'input> {
-    type Item = Ordering;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match (self.a.next(), self.b.next()) {
-            (None, None) => None,
-            (Some(_), None) => Some(Ordering::Greater),
-            (None, Some(_)) => Some(Ordering::Less),
-            (Some(a), Some(b)) => Some(cmp_pre_str(a, b)),
-        }
-    }
-}
-
-fn cmp_pre_str(a: &str, b: &str) -> Ordering {
-    match (a.parse::<u64>(), b.parse::<u64>()) {
-        (Ok(a), Ok(b)) => a.cmp(&b),
-        (Ok(_), Err(_)) => Ordering::Less,
-        (Err(_), Ok(_)) => Ordering::Greater,
-        (Err(_), Err(_)) => a.cmp(&b),
+            .then_with(|| self.additional.cmp(&other.additional))
+            .then_with(|| self.pre.cmp(&other.pre))
     }
 }
 
@@ -601,11 +530,11 @@ impl<'input> lenient_semver_parser::VersionBuilder<'input> for Version<'input> {
     }
 
     fn add_pre_release(&mut self, pre_release: &'input str) {
-        self.pre.push(pre_release)
+        self.pre.set(pre_release)
     }
 
     fn add_build(&mut self, build: &'input str) {
-        self.build.push(build)
+        self.build.set(build)
     }
 
     fn build(self) -> Self::Out {
@@ -651,17 +580,15 @@ impl<'de: 'input, 'input> Deserialize<'de> for Version<'input> {
 #[cfg(feature = "semver")]
 impl From<Version<'_>> for semver::Version {
     fn from(v: Version<'_>) -> Self {
+        let mut add: Vec<semver::Identifier> = v.additional.into();
+        let mut build: Vec<semver::Identifier> = v.build.into();
+        add.append(&mut build);
         semver::Version {
             major: v.major,
             minor: v.minor,
             patch: v.patch,
-            pre: v.pre.into_iter().map(parse_11).collect(),
-            build: v
-                .additional
-                .into_iter()
-                .map(semver::Identifier::Numeric)
-                .chain(v.build.into_iter().map(parse_11))
-                .collect(),
+            pre: v.pre.into(),
+            build: add,
         }
     }
 }
@@ -669,35 +596,17 @@ impl From<Version<'_>> for semver::Version {
 #[cfg(feature = "semver10")]
 impl From<Version<'_>> for semver10::Version {
     fn from(v: Version<'_>) -> Self {
+        let mut add: Vec<semver10::Identifier> = v.additional.into();
+        let mut build: Vec<semver10::Identifier> = v.build.into();
+        add.append(&mut build);
         semver10::Version {
             major: v.major,
             minor: v.minor,
             patch: v.patch,
-            pre: v.pre.into_iter().map(parse_10).collect(),
-            build: v
-                .additional
-                .into_iter()
-                .map(semver10::Identifier::Numeric)
-                .chain(v.build.into_iter().map(parse_10))
-                .collect(),
+            pre: v.pre.into(),
+            build: add,
         }
     }
-}
-
-#[cfg(feature = "semver")]
-fn parse_11(s: &str) -> semver::Identifier {
-    s.parse::<u64>().map_or_else(
-        |_| semver::Identifier::AlphaNumeric(String::from(s)),
-        semver::Identifier::Numeric,
-    )
-}
-
-#[cfg(feature = "semver10")]
-fn parse_10(s: &str) -> semver10::Identifier {
-    s.parse::<u64>().map_or_else(
-        |_| semver10::Identifier::AlphaNumeric(String::from(s)),
-        semver10::Identifier::Numeric,
-    )
 }
 
 #[cfg(test)]
@@ -795,7 +704,7 @@ mod tests {
     #[test_case("1.2.3-pre", "1.2.3-pre")]
     #[test_case("1.2.3.pre2", "1.2.3-pre2")]
     #[test_case("1.2.3+build", "1.2.3+build")]
-    #[test_case("1.2.3.4-pre-42+r-1337", "1.2.3.4-pre.42+r.1337")]
+    #[test_case("1.2.3.4-pre-42+r-1337", "1.2.3.4-pre-42+r-1337")]
     fn test_to_string(v: &str, expected: &str) {
         assert_eq!(Version::parse(v).unwrap().to_string(), expected.to_string());
     }
@@ -863,7 +772,7 @@ mod tests {
     #[test]
     fn test_parses_additional() {
         let version = Version::parse("1.2.3.4.5-alpha1.drop02").unwrap();
-        assert_eq!(vec![4, 5], version.additional)
+        assert_eq!(vec![4, 5], &*version.additional)
     }
 
     #[test_case("1")]

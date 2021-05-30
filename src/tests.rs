@@ -128,8 +128,8 @@ mod version_test {
         let (mut version, pre, build) = version.disassociate_metadata();
 
         // We still get the referenced input slices, so we create owned copies
-        let pre: Vec<String> = pre.into_iter().map(ToOwned::to_owned).collect();
-        let build: Vec<String> = build.into_iter().map(ToOwned::to_owned).collect();
+        let pre: Option<String> = pre.map(ToOwned::to_owned);
+        let build: Option<String> = build.map(ToOwned::to_owned);
 
         // now we can safely drop the input
         drop(input);
@@ -137,11 +137,11 @@ mod version_test {
         // We can also re-add the cloned identifiers.
         // The version would now be bound to the lifetime of this method.
         // Just for fun, we swap pre-release and build
-        for pre in &pre {
-            version.add_build(pre.as_ref());
+        if let Some(pre) = pre.as_deref() {
+            version.add_build(pre);
         }
-        for build in &build {
-            version.add_pre_release(build.as_ref());
+        if let Some(build) = build.as_deref() {
+            version.add_pre_release(build);
         }
 
         assert_eq!("1.3.3.7-build.42+beta.21".to_string(), version.to_string());
@@ -174,15 +174,13 @@ mod serde_test {
 
         // use serde as one would normally do
         let dep = serde_json::from_str::<DependencySpec>(input.as_ref()).unwrap();
-        println!("{:?}", dep);
 
         // cannot move out of `input` because it is borrowed
         // drop(input);
 
         let mut expected = Version::new(1, 3, 3);
         expected.add_additional(7);
-        expected.add_build("build");
-        expected.add_build("42");
+        expected.add_build("build.42");
 
         assert_eq!(dep.version, expected);
 

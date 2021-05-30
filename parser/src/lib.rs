@@ -223,7 +223,7 @@ pub trait VersionBuilder<'input> {
     #[allow(unused)]
     fn add_additional(&mut self, num: u64) {}
 
-    /// Add a pre-release identifier.
+    /// The pre-release metadata.
     ///
     /// The string might represent any alpha-numeric identifier,
     /// including numbers with or without leading zeroes.
@@ -233,11 +233,12 @@ pub trait VersionBuilder<'input> {
     /// This component is optional and might not be called
     /// before [`VersionBuilder::build`].
     ///
-    /// This method might be called multiple times.
+    /// This method might be called multiple times,
+    /// although the default implementation produces only one identifier.
     #[allow(unused)]
     fn add_pre_release(&mut self, pre_release: &'input str) {}
 
-    /// Add a build identifier.
+    /// The build identifier.
     ///
     /// The string might represent any alpha-numeric identifier,
     /// including numbers with or without leading zeroes.
@@ -247,7 +248,8 @@ pub trait VersionBuilder<'input> {
     /// This component is optional and might not be called
     /// before [`VersionBuilder::build`].
     ///
-    /// This method might be called multiple times.
+    /// This method might be called multiple times,
+    /// although the default implementation produces only one identifier.
     #[allow(unused)]
     fn add_build(&mut self, build: &'input str) {}
 
@@ -304,11 +306,13 @@ impl<'input> VersionBuilder<'input> for semver::Version {
     }
 
     fn add_pre_release(&mut self, pre_release: &'input str) {
-        self.pre.push(try_num_semver(pre_release))
+        self.pre
+            .extend(pre_release.split(['.', '-'].as_ref()).map(try_num_semver));
     }
 
     fn add_build(&mut self, build: &'input str) {
-        self.build.push(try_num_semver(build))
+        self.build
+            .extend(build.split(['.', '-', '+'].as_ref()).map(try_num_semver));
     }
 
     fn build(self) -> Self::Out {
@@ -341,11 +345,13 @@ impl<'input> VersionBuilder<'input> for semver10::Version {
     }
 
     fn add_pre_release(&mut self, pre_release: &'input str) {
-        self.pre.push(try_num_semver10(pre_release))
+        self.pre
+            .extend(pre_release.split(['.', '-'].as_ref()).map(try_num_semver10));
     }
 
     fn add_build(&mut self, build: &'input str) {
-        self.build.push(try_num_semver10(build))
+        self.build
+            .extend(build.split(['-', '.', '+'].as_ref()).map(try_num_semver10));
     }
 
     fn build(self) -> Self::Out {
@@ -1154,62 +1160,60 @@ type Dfa = ([State; STATES * CLASSES], [Accept; STATES * CLASSES]);
 const fn dfa() -> Dfa {
     let mut transitions = [State::Error; STATES * CLASSES];
     dfa!(transitions:
-                 Whitespace @ ExpectMajor  -> ExpectMajor,
-                          V @ ExpectMajor  -> RequireMajor,
-                     Number @ ExpectMajor  -> ParseMajor,
+                           Whitespace @ ExpectMajor  -> ExpectMajor,
+                                    V @ ExpectMajor  -> RequireMajor,
+                               Number @ ExpectMajor  -> ParseMajor,
 
-                     Number @ RequireMajor -> ParseMajor,
+                               Number @ RequireMajor -> ParseMajor,
 
-    Whitespace | EndOfInput @ ParseMajor   -> EndOfInput,
-                     Number @ ParseMajor   -> ParseMajor,
-                        Dot @ ParseMajor   -> ExpectMinor,
-                     Hyphen @ ParseMajor   -> ExpectPre,
-                       Plus @ ParseMajor   -> ExpectBuild,
+              Whitespace | EndOfInput @ ParseMajor   -> EndOfInput,
+                               Number @ ParseMajor   -> ParseMajor,
+                                  Dot @ ParseMajor   -> ExpectMinor,
+                               Hyphen @ ParseMajor   -> ExpectPre,
+                                 Plus @ ParseMajor   -> ExpectBuild,
 
-                     Number @ ExpectMinor  -> ParseMinor,
-                  Alpha | V @ ExpectMinor  -> ParsePre,
+                               Number @ ExpectMinor  -> ParseMinor,
+                            Alpha | V @ ExpectMinor  -> ParsePre,
 
-    Whitespace | EndOfInput @ ParseMinor   -> EndOfInput,
-                     Number @ ParseMinor   -> ParseMinor,
-                  Alpha | V @ ParseMinor   -> ParsePre,
-                        Dot @ ParseMinor   -> ExpectPatch,
-                     Hyphen @ ParseMinor   -> ExpectPre,
-                       Plus @ ParseMinor   -> ExpectBuild,
+              Whitespace | EndOfInput @ ParseMinor   -> EndOfInput,
+                               Number @ ParseMinor   -> ParseMinor,
+                            Alpha | V @ ParseMinor   -> ParsePre,
+                                  Dot @ ParseMinor   -> ExpectPatch,
+                               Hyphen @ ParseMinor   -> ExpectPre,
+                                 Plus @ ParseMinor   -> ExpectBuild,
 
-                     Number @ ExpectPatch  -> ParsePatch,
-                  Alpha | V @ ExpectPatch  -> ParsePre,
+                               Number @ ExpectPatch  -> ParsePatch,
+                            Alpha | V @ ExpectPatch  -> ParsePre,
 
-    Whitespace | EndOfInput @ ParsePatch   -> EndOfInput,
-                     Number @ ParsePatch   -> ParsePatch,
-                  Alpha | V @ ParsePatch   -> ParsePre,
-                        Dot @ ParsePatch   -> ExpectAdd,
-                     Hyphen @ ParsePatch   -> ExpectPre,
-                       Plus @ ParsePatch   -> ExpectBuild,
+              Whitespace | EndOfInput @ ParsePatch   -> EndOfInput,
+                               Number @ ParsePatch   -> ParsePatch,
+                            Alpha | V @ ParsePatch   -> ParsePre,
+                                  Dot @ ParsePatch   -> ExpectAdd,
+                               Hyphen @ ParsePatch   -> ExpectPre,
+                                 Plus @ ParsePatch   -> ExpectBuild,
 
-                     Number @ ExpectAdd    -> ParseAdd,
-                  Alpha | V @ ExpectAdd    -> ParsePre,
+                               Number @ ExpectAdd    -> ParseAdd,
+                            Alpha | V @ ExpectAdd    -> ParsePre,
 
-    Whitespace | EndOfInput @ ParseAdd     -> EndOfInput,
-                     Number @ ParseAdd     -> ParseAdd,
-                  Alpha | V @ ParseAdd     -> ParsePre,
-                        Dot @ ParseAdd     -> ExpectAdd,
-                     Hyphen @ ParseAdd     -> ExpectPre,
-                       Plus @ ParseAdd     -> ExpectBuild,
+              Whitespace | EndOfInput @ ParseAdd     -> EndOfInput,
+                               Number @ ParseAdd     -> ParseAdd,
+                            Alpha | V @ ParseAdd     -> ParsePre,
+                                  Dot @ ParseAdd     -> ExpectAdd,
+                               Hyphen @ ParseAdd     -> ExpectPre,
+                                 Plus @ ParseAdd     -> ExpectBuild,
 
-         Number | Alpha | V @ ExpectPre    -> ParsePre,
+                   Number | Alpha | V @ ExpectPre    -> ParsePre,
 
-    Whitespace | EndOfInput @ ParsePre     -> EndOfInput,
-         Number | Alpha | V @ ParsePre     -> ParsePre,
-               Dot | Hyphen @ ParsePre     -> ExpectPre,
-                       Plus @ ParsePre     -> ExpectBuild,
+              Whitespace | EndOfInput @ ParsePre     -> EndOfInput,
+    Dot | Hyphen | Number | Alpha | V @ ParsePre     -> ParsePre,
+                                 Plus @ ParsePre     -> ExpectBuild,
 
-         Number | Alpha | V @ ExpectBuild  -> ParseBuild,
+                   Number | Alpha | V @ ExpectBuild  -> ParseBuild,
 
-    Whitespace | EndOfInput @ ParseBuild   -> EndOfInput,
-         Number | Alpha | V @ ParseBuild   -> ParseBuild,
-               Dot | Hyphen @ ParseBuild   -> ExpectBuild,
+              Whitespace | EndOfInput @ ParseBuild   -> EndOfInput,
+    Dot | Hyphen | Number | Alpha | V @ ParseBuild   -> ParseBuild,
 
-    Whitespace | EndOfInput @ EndOfInput   -> EndOfInput,
+              Whitespace | EndOfInput @ EndOfInput   -> EndOfInput,
     );
 
     let mut accepts = [Accept::None; STATES * CLASSES];
@@ -1250,14 +1254,14 @@ const fn dfa() -> Dfa {
                                                    EndOfInput @ ExpectPre    -> ErrorMissing,
                 Whitespace | Dot | Hyphen | Plus | Unexpected @ ExpectPre    -> ErrorUnexpected,
 
-                Whitespace | EndOfInput | Dot | Hyphen | Plus @ ParsePre     -> Pre,
+                               Whitespace | EndOfInput | Plus @ ParsePre     -> Pre,
                                                    Unexpected @ ParsePre     -> ErrorUnexpected,
 
                                            Number | V | Alpha @ ExpectBuild  -> SaveStart,
                                                    EndOfInput @ ExpectBuild  -> ErrorMissing,
                 Whitespace | Dot | Hyphen | Plus | Unexpected @ ExpectBuild  -> ErrorUnexpected,
 
-                Whitespace | EndOfInput | Dot | Hyphen | Plus @ ParseBuild   -> Build,
+                                      Whitespace | EndOfInput @ ParseBuild   -> Build,
                                                    Unexpected @ ParseBuild   -> ErrorUnexpected,
 
         Alpha | V | Number | Dot | Hyphen | Plus | Unexpected @ EndOfInput   -> ErrorUnexpected,
@@ -1391,7 +1395,7 @@ mod tests {
     #[test_case("1.9.RC2" => Ok(vers!(1 . 9 . 0 - "RC2")))]
     #[test_case("1.RC3" => Ok(vers!(1 . 0 . 0 - "RC3")))]
     #[test_case("1.3.3-7" => Ok(vers!(1 . 3 . 3 - 7)))]
-    #[test_case("5.9.0-202009080501-r" => Ok(vers!(5 . 9 . 0 - 202009080501 + "r")))]
+    #[test_case("5.9.0-202009080501-r" => Ok(vers!(5 . 9 . 0 - 202009080501 - "r")))]
     #[test_case("1.2.3.RC.4" => Ok(vers!(1 . 2 . 3 - "RC" - 4)))]
     fn test_pre_release(input: &str) -> Result<Version, Error<'_>> {
         parse::<Version>(input)
