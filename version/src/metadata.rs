@@ -1,5 +1,6 @@
 use std::{
     cmp::Ordering,
+    iter::FromIterator,
     ops::{Deref, DerefMut, Index, IndexMut},
 };
 
@@ -87,6 +88,28 @@ impl Index<usize> for Additional {
 impl IndexMut<usize> for Additional {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         &mut self.numbers[index]
+    }
+}
+
+impl FromIterator<u64> for Additional {
+    fn from_iter<T: IntoIterator<Item = u64>>(iter: T) -> Self {
+        Self {
+            numbers: iter.into_iter().collect(),
+        }
+    }
+}
+
+impl From<Vec<u64>> for Additional {
+    fn from(numbers: Vec<u64>) -> Self {
+        Self { numbers }
+    }
+}
+
+impl From<&[u64]> for Additional {
+    fn from(numbers: &[u64]) -> Self {
+        Self {
+            numbers: numbers.to_vec(),
+        }
     }
 }
 
@@ -187,6 +210,14 @@ impl<'input> DerefMut for PreRelease<'input> {
 impl<'input> AsRef<str> for PreRelease<'input> {
     fn as_ref(&self) -> &str {
         self.identifier.unwrap_or_default()
+    }
+}
+
+impl<'input> From<&'input str> for PreRelease<'input> {
+    fn from(identifier: &'input str) -> Self {
+        Self {
+            identifier: Some(identifier),
+        }
     }
 }
 
@@ -305,6 +336,14 @@ impl<'input> DerefMut for Build<'input> {
 impl<'input> AsRef<str> for Build<'input> {
     fn as_ref(&self) -> &str {
         self.identifier.unwrap_or_default()
+    }
+}
+
+impl<'input> From<&'input str> for Build<'input> {
+    fn from(identifier: &'input str) -> Self {
+        Self {
+            identifier: Some(identifier),
+        }
     }
 }
 
