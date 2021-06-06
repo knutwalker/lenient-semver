@@ -1,6 +1,6 @@
 [package]
 name = "lenient_semver_version_builder"
-version = "0.4.0"
+version = "0.4.1"
 description = "VersionBuilder trait for lenient parser for Semantic Version numbers."
 authors = ["Paul Horn <developer@knutwalker.de>"]
 edition = "2018"
