@@ -14,7 +14,7 @@ categories = ["development-tools", "parser-implementations"]
 keywords = ["lenient", "parser", "semver", "semantic", "version"]
 
 [dependencies]
-lenient_semver_parser = { path = "parser", version = "0.3", default-features = false }
+lenient_semver_parser = { path = "parser", version = "^0.4", default-features = false }
 lenient_version = { path = "version", version = "0.3", default-features = false, optional = true }
 semver_v100 = { version = "1", optional = true, package = "semver" }
 semver_v011 = { version = "0.11", optional = true, package = "semver" }
