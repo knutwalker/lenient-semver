@@ -24,6 +24,7 @@ This diagram shows lenient parsing grammar
 ## Examples
 
 ```rust
+# use semver_v100 as semver;
 use semver::Version;
 
 let version = lenient_semver::parse("1.2.3");
@@ -183,8 +184,9 @@ assert!(is_pre_release("1.2.3+build") == false);
 
 |   feature name | default enabled | transitive dependencies | purpose
 | -------------: | --------------- | ----------------------- | --------
-|       semver11 | **yes**         | `semver = "0.11.0"`     | Provides `VersionBuilder` implementation for `semver = "0.11.0"`.
-|       semver10 | no              | `semver = "0.10.0"`     | Provides `VersionBuilder` implementation for `semver = "0.10.0"`.
+|         semver | **yes**         | `semver = "1"`          | Provides `VersionBuilder` implementation for `semver = "1"`.
+|      semver011 | no              | `semver = "0.11"`       | Provides `VersionBuilder` implementation for `semver = "0.11"`.
+|      semver010 | no              | `semver = "0.10"`       | Provides `VersionBuilder` implementation for `semver = "0.10"`.
 |  parse_partial | no              |                         | Provides `parse_partial` method for partially parsing a version from the beginning of a string.
 |   version_lite | no              | `lenient_version = "*"` | A custom Version as alternative to `semver::Version` that complements some leneient features, such as additional numbers beyond patch.
 | version_semver | no              | `lenient_version = "*"` | Add conversions From `lenient_version` Into `semver::Version`.
@@ -193,38 +195,63 @@ assert!(is_pre_release("1.2.3+build") == false);
 
 ### Examples
 
-#### `semver11`
+#### `semver`
 
 ```toml
-lenient_semver = { version = "*", features = [ "semver11" ] }
+lenient_semver = { version = "*", features = [ "semver" ] }
 ```
 
 ```rust
-use semver::Version as Version11;
-
-// This features is enabled by default and is usable through `parse` directly,
-// but can also be used with `parse_into`.
-let version = lenient_semver::parse_into::<Version11>("v1.2.3.Final").unwrap();
-assert_eq!(version, Version11::parse("1.2.3+Final").unwrap());
-```
-
-#### `semver10`
-
-```toml
-lenient_semver = { version = "*", features = [ "semver10" ] }
-```
-
-```rust
-# #[cfg(not(feature = "semver10"))]
+# #[cfg(not(feature = "semver"))]
 # compile_error!("Please run doc tests with --all-features");
-// We have both version of semver available, the older one
-// is renamed to `semver010`.
-use semver010::Version as Version10;
+# use semver_v100 as semver;
+use semver::Version;
+
+// This features is enabled by default and is usable through `parse` directly.
+let version = lenient_semver::parse("v1.2.3.Final").unwrap();
+assert_eq!(version, Version::parse("1.2.3+Final").unwrap());
+
+// It can also be used with `parse_into`.
+let version = lenient_semver::parse_into::<Version>("v1.2.3.Final").unwrap();
+assert_eq!(version, Version::parse("1.2.3+Final").unwrap());
+```
+
+#### `semver011`
+
+```toml
+lenient_semver = { version = "*", features = [ "semver011" ] }
+```
+
+```rust
+# #[cfg(not(feature = "semver011"))]
+# compile_error!("Please run doc tests with --all-features");
+# use semver_v011 as semver;
+// Rename is just for demonstration and not required
+use semver::Version as Version011;
 
 // The default parse is fixed to the latest semver::Version,
 // so we need to use `parse_into`.
-let version = lenient_semver::parse_into::<Version10>("v1.2.3.Final").unwrap();
-assert_eq!(version, Version10::parse("1.2.3+Final").unwrap());
+let version = lenient_semver::parse_into::<Version011>("v1.2.3.Final").unwrap();
+assert_eq!(version, Version011::parse("1.2.3+Final").unwrap());
+```
+
+#### `semver010`
+
+```toml
+lenient_semver = { version = "*", features = [ "semver010" ] }
+```
+
+```rust
+# #[cfg(not(feature = "semver010"))]
+# compile_error!("Please run doc tests with --all-features");
+# use semver_v010 as semver;
+// Rename is just for demonstration and not required
+use semver::Version as Version010;
+
+// The default parse is fixed to the latest semver::Version,
+// so we need to use `parse_into`.
+let version = lenient_semver::parse_into::<Version010>("v1.2.3.Final").unwrap();
+assert_eq!(version, Version010::parse("1.2.3+Final").unwrap());
 ```
 
 #### `version_lite`
@@ -250,17 +277,18 @@ assert_eq!(version, Version::parse("1.3.3.7").unwrap()); // Version::parse deleg
 The native support allows such version to be compared properly, which does not work with semver.
 
 ```rust
-# #[cfg(not(feature = "version_lite"))]
+# #[cfg(not(all(feature = "version_lite", feature = "semver011")))]
 # compile_error!("Please run doc tests with --all-features");
+# use semver_v011 as semver;
 use lenient_semver::Version;
 
 let version_a = Version::parse("1.3.3.7").unwrap();
 let version_b = Version::parse("1.3.3.8").unwrap();
 assert!(version_a < version_b);
 
-// with semver, that fails:
-let version_a = lenient_semver::parse("1.3.3.7").unwrap();
-let version_b = lenient_semver::parse("1.3.3.8").unwrap();
+// with semver pre 1.0, that fails:
+let version_a = lenient_semver::parse_into::<semver::Version>("1.3.3.7").unwrap();
+let version_b = lenient_semver::parse_into::<semver::Version>("1.3.3.8").unwrap();
 assert_eq!(version_a < version_b, false);
 assert_eq!(version_a, version_b);
 ```
@@ -320,12 +348,13 @@ If you only ever intend to store the version information, it might make more sen
 ```rust
 # #[cfg(all(not(feature = "version_lite"), not(feature = "version_semver")))]
 # compile_error!("Please run doc tests with --all-features");
+# use semver_v100 as semver;
 use semver::Version;
 
 let input = String::from("v1.3.3.7-beta-21+build-42");
 let version = lenient_semver::Version::parse(&input).unwrap();
 let version = Version::from(version);
-assert_eq!("1.3.3-beta.21+7.build.42", &version.to_string());
+assert_eq!("1.3.3-beta-21+7.build-42", &version.to_string());
 ```
 
 #### `version_serde`
@@ -474,7 +503,7 @@ pub use lenient_version::{Version, Version as VersionLite};
 /// ## Examples
 ///
 /// ```rust
-/// # use semver::Version;
+/// # use semver_v100::Version;
 ///
 /// let version = lenient_semver::parse("1.2.3");
 /// assert_eq!(version, Ok(Version::new(1, 2, 3)));
@@ -519,9 +548,9 @@ pub use lenient_version::{Version, Version as VersionLite};
 ///
 /// This method is fixes to return a [`semver::Version`].
 /// A more flexible variant is [`lenient_semver::parse_into`].
-#[cfg(feature = "semver11")]
-pub fn parse(input: &str) -> Result<semver::Version, parser::Error> {
-    parser::parse::<semver::Version>(input)
+#[cfg(feature = "semver")]
+pub fn parse(input: &str) -> Result<semver_v100::Version, parser::Error> {
+    parser::parse::<semver_v100::Version>(input)
 }
 
 /// Parse a string slice into a Version.
