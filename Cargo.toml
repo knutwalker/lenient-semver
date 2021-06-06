@@ -16,13 +16,15 @@ keywords = ["lenient", "parser", "semver", "semantic", "version"]
 [dependencies]
 lenient_semver_parser = { path = "parser", version = "0.3", default-features = false }
 lenient_version = { path = "version", version = "0.3", default-features = false, optional = true }
-semver = { version = "0.11", optional = true, package = "semver" }
-semver010 = { version = "0.10", optional = true, package = "semver" }
+semver = { version = "1", optional = true, package = "semver" }
+semver_v011 = { version = "0.11", optional = true, package = "semver" }
+semver_v010 = { version = "0.10", optional = true, package = "semver" }
 
 [features]
-default = [ "semver11" ]
-semver11 = [ "semver", "lenient_semver_parser/semver" ]
-semver10 = [ "semver010", "lenient_semver_parser/semver10" ]
+default = [ "semver100" ]
+semver100 = [ "semver", "lenient_semver_parser/semver" ]
+semver011 = [ "semver_v011", "lenient_semver_parser/semver011" ]
+semver010 = [ "semver_v010", "lenient_semver_parser/semver010" ]
 parse_partial = [ "lenient_semver_parser/partial" ]
 version_lite = [ "lenient_version", "lenient_version/parser" ]
 version_semver = [ "version_lite", "lenient_version/semver" ]
@@ -32,7 +34,8 @@ version_serde = [ "version_lite", "lenient_version/serde" ]
 lenient_version = { path = "version", features = [ "serde" ] }
 serde = { version = "1", package = "serde", features = ["derive"] }
 serde_json = "1"
-semver = "0.11"
+semver = "1"
+
 
 [package.metadata.docs.rs]
-features = [ "semver11", "semver10", "version_lite", "version_serde" ]
+features = [ "semver100", "semver011", "semver010", "version_lite", "version_serde" ]

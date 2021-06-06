@@ -2,8 +2,9 @@ use lenient_semver_02::{parse as parse_02, VersionLite as VersionLite02};
 use lenient_semver_parser::parse;
 use lenient_version::Version as VersionLite;
 use regex::Regex;
-use semver::{Identifier, Version};
-use semver10::Version as Version10;
+use semver::Version;
+use semver010::Version as Version010;
+use semver011::Version as Version011;
 use semver_rs::{Options, Version as VersionRs};
 
 const INPUT_S: &str = "1.0.0";
@@ -16,7 +17,7 @@ pub fn mega_input() -> String {
 
 #[inline(always)]
 pub fn lenient_semver(input: &str) -> Version {
-    parse::<Version>(input).unwrap()
+    parse::<Version>(input.trim()).unwrap()
 }
 
 #[inline(always)]
@@ -25,13 +26,18 @@ pub fn lenient_version(input: &str) -> VersionLite {
 }
 
 #[inline(always)]
-pub fn lenient_semver10(input: &str) -> Version10 {
-    parse::<Version10>(input).unwrap()
+pub fn lenient_semver011(input: &str) -> Version011 {
+    parse::<Version011>(input).unwrap()
 }
 
 #[inline(always)]
-pub fn lenient_02_semver(input: &str) -> Version10 {
-    parse_02::<Version10>(input).unwrap()
+pub fn lenient_semver010(input: &str) -> Version010 {
+    parse::<Version010>(input).unwrap()
+}
+
+#[inline(always)]
+pub fn lenient_02_semver(input: &str) -> Version010 {
+    parse_02::<Version010>(input).unwrap()
 }
 
 #[inline(always)]
@@ -41,12 +47,17 @@ pub fn lenient_02_lite(input: &str) -> VersionLite02 {
 
 #[inline(always)]
 pub fn semver(input: &str) -> Version {
-    Version::parse(input).unwrap()
+    Version::parse(input.trim()).unwrap()
 }
 
 #[inline(always)]
-pub fn semver10(input: &str) -> Version10 {
-    Version10::parse(input).unwrap()
+pub fn semver011(input: &str) -> Version011 {
+    Version011::parse(input).unwrap()
+}
+
+#[inline(always)]
+pub fn semver010(input: &str) -> Version010 {
+    Version010::parse(input).unwrap()
 }
 
 #[inline(always)]
@@ -80,26 +91,11 @@ pub fn regex_parser(re: &Regex, input: &str) -> Option<Version> {
         caps.name("patch")?.as_str().parse().unwrap(),
     );
 
-    fn parse_id(v: &str) -> Identifier {
-        match v.parse::<u64>() {
-            Ok(n) => {
-                if v.len() > 1 && v.starts_with('0') {
-                    Identifier::AlphaNumeric(v.into())
-                } else {
-                    Identifier::Numeric(n)
-                }
-            }
-            Err(_) => Identifier::AlphaNumeric(v.into()),
-        }
-    }
-
     if let Some(pre) = caps.name("prerelease") {
-        let pre = pre.as_str().split('.').map(parse_id).collect::<Vec<_>>();
-        version.pre = pre;
+        version.pre = semver::Prerelease::new(pre.as_str()).unwrap();
     }
     if let Some(build) = caps.name("buildmetadata") {
-        let build = build.as_str().split('.').map(parse_id).collect::<Vec<_>>();
-        version.build = build;
+        version.build = semver::BuildMetadata::new(build.as_str()).unwrap();
     }
 
     Some(version)
@@ -109,15 +105,20 @@ pub fn regex_parser(re: &Regex, input: &str) -> Option<Version> {
 mod tests {
     use super::*;
     use lenient_semver_02::IdentifierLite as IdentifierLite02;
-    use semver10::Identifier as Identifier10;
+    use semver010::Identifier as Identifier010;
+    use semver011::Identifier as Identifier011;
     use test_case::test_case;
 
-    fn expected_s_11() -> Version {
+    fn expected_s_10() -> Version {
         Version::new(1, 0, 0)
     }
 
-    fn expected_s_10() -> Version10 {
-        Version10::new(1, 0, 0)
+    fn expected_s_011() -> Version011 {
+        Version011::new(1, 0, 0)
+    }
+
+    fn expected_s_010() -> Version010 {
+        Version010::new(1, 0, 0)
     }
 
     fn expected_s_lite() -> VersionLite<'static> {
@@ -134,40 +135,50 @@ mod tests {
         VersionRs::from_parts(1, 0, 0, None)
     }
 
-    fn expected_xl_11() -> Version {
+    fn expected_xl_10() -> Version {
         Version {
             major: 1,
             minor: 2,
             patch: 3,
-            pre: vec![
-                Identifier::Numeric(1),
-                Identifier::AlphaNumeric(String::from("alpha1")),
-                Identifier::Numeric(9),
-            ],
-            build: vec![
-                Identifier::AlphaNumeric(String::from("build5")),
-                Identifier::Numeric(7),
-                Identifier::AlphaNumeric(String::from("3aedf")),
-                Identifier::AlphaNumeric(String::from("01337")),
-            ],
+            pre: semver::Prerelease::new("1.alpha1.9").unwrap(),
+            build: semver::BuildMetadata::new("build5.7.3aedf.01337").unwrap(),
         }
     }
 
-    fn expected_xl_10() -> Version10 {
-        Version10 {
+    fn expected_xl_011() -> Version011 {
+        Version011 {
             major: 1,
             minor: 2,
             patch: 3,
             pre: vec![
-                Identifier10::Numeric(1),
-                Identifier10::AlphaNumeric(String::from("alpha1")),
-                Identifier10::Numeric(9),
+                Identifier011::Numeric(1),
+                Identifier011::AlphaNumeric(String::from("alpha1")),
+                Identifier011::Numeric(9),
             ],
             build: vec![
-                Identifier10::AlphaNumeric(String::from("build5")),
-                Identifier10::Numeric(7),
-                Identifier10::AlphaNumeric(String::from("3aedf")),
-                Identifier10::AlphaNumeric(String::from("01337")),
+                Identifier011::AlphaNumeric(String::from("build5")),
+                Identifier011::Numeric(7),
+                Identifier011::AlphaNumeric(String::from("3aedf")),
+                Identifier011::AlphaNumeric(String::from("01337")),
+            ],
+        }
+    }
+
+    fn expected_xl_010() -> Version010 {
+        Version010 {
+            major: 1,
+            minor: 2,
+            patch: 3,
+            pre: vec![
+                Identifier010::Numeric(1),
+                Identifier010::AlphaNumeric(String::from("alpha1")),
+                Identifier010::Numeric(9),
+            ],
+            build: vec![
+                Identifier010::AlphaNumeric(String::from("build5")),
+                Identifier010::Numeric(7),
+                Identifier010::AlphaNumeric(String::from("3aedf")),
+                Identifier010::AlphaNumeric(String::from("01337")),
             ],
         }
     }
@@ -203,8 +214,8 @@ mod tests {
         VersionRs::from_parts(1, 2, 3, Some(String::from("1.alpha1.9")))
     }
 
-    #[test_case(INPUT_S => expected_s_11())]
-    #[test_case(INPUT_XL => expected_xl_11())]
+    #[test_case(INPUT_S => expected_s_10())]
+    #[test_case(INPUT_XL => expected_xl_10())]
     fn test_lenient_semver(input: &str) -> Version {
         lenient_semver(input)
     }
@@ -215,10 +226,16 @@ mod tests {
         lenient_version(input)
     }
 
-    #[test_case(INPUT_S => expected_s_10())]
-    #[test_case(INPUT_XL => expected_xl_10())]
-    fn test_lenient_semver10(input: &str) -> Version10 {
-        lenient_semver10(input)
+    #[test_case(INPUT_S => expected_s_011())]
+    #[test_case(INPUT_XL => expected_xl_011())]
+    fn test_lenient_semver011(input: &str) -> Version011 {
+        lenient_semver011(input)
+    }
+
+    #[test_case(INPUT_S => expected_s_010())]
+    #[test_case(INPUT_XL => expected_xl_010())]
+    fn test_lenient_semver010(input: &str) -> Version010 {
+        lenient_semver010(input)
     }
 
     #[test_case(INPUT_S => expected_s_lite_02())]
@@ -227,22 +244,28 @@ mod tests {
         lenient_02_lite(input)
     }
 
-    #[test_case(INPUT_S => expected_s_10())]
-    #[test_case(INPUT_XL => expected_xl_10())]
-    fn test_lenient_02_semver10(input: &str) -> Version10 {
+    #[test_case(INPUT_S => expected_s_010())]
+    #[test_case(INPUT_XL => expected_xl_010())]
+    fn test_lenient_02_semver010(input: &str) -> Version010 {
         lenient_02_semver(input)
     }
 
-    #[test_case(INPUT_S => expected_s_11())]
-    #[test_case(INPUT_XL => expected_xl_11())]
+    #[test_case(INPUT_S => expected_s_10())]
+    #[test_case(INPUT_XL => expected_xl_10())]
     fn test_semver(input: &str) -> Version {
         semver(input)
     }
 
-    #[test_case(INPUT_S => expected_s_10())]
-    #[test_case(INPUT_XL => expected_xl_10())]
-    fn test_semver10(input: &str) -> Version10 {
-        semver10(input)
+    #[test_case(INPUT_S => expected_s_011())]
+    #[test_case(INPUT_XL => expected_xl_011())]
+    fn test_semver011(input: &str) -> Version011 {
+        semver011(input)
+    }
+
+    #[test_case(INPUT_S => expected_s_010())]
+    #[test_case(INPUT_XL => expected_xl_010())]
+    fn test_semver010(input: &str) -> Version010 {
+        semver010(input)
     }
 
     #[test_case(INPUT_S => expected_s_rs())]
@@ -257,8 +280,8 @@ mod tests {
         semver_rs_loose(input)
     }
 
-    #[test_case(INPUT_S => expected_s_11())]
-    #[test_case(INPUT_XL => expected_xl_11())]
+    #[test_case(INPUT_S => expected_s_10())]
+    #[test_case(INPUT_XL => expected_xl_10())]
     fn test_regex(input: &str) -> Version {
         let re = parsing_regex();
         regex(&re, input)

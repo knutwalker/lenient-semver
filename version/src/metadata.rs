@@ -348,18 +348,36 @@ impl<'input> From<&'input str> for Build<'input> {
 }
 
 #[cfg(feature = "semver")]
-impl Into<Vec<semver::Identifier>> for Additional {
-    fn into(self) -> Vec<semver::Identifier> {
-        self.numbers
-            .into_iter()
-            .map(semver::Identifier::Numeric)
-            .collect()
+impl std::convert::TryInto<semver::Prerelease> for PreRelease<'_> {
+    type Error = semver::Error;
+
+    fn try_into(self) -> Result<semver::Prerelease, Self::Error> {
+        semver::Prerelease::new(self.identifier.unwrap_or_default())
     }
 }
 
 #[cfg(feature = "semver")]
-impl Into<Vec<semver::Identifier>> for PreRelease<'_> {
-    fn into(self) -> Vec<semver::Identifier> {
+impl std::convert::TryInto<semver::BuildMetadata> for Build<'_> {
+    type Error = semver::Error;
+
+    fn try_into(self) -> Result<semver::BuildMetadata, Self::Error> {
+        semver::BuildMetadata::new(self.identifier.unwrap_or_default())
+    }
+}
+
+#[cfg(feature = "semver011")]
+impl Into<Vec<semver011::Identifier>> for Additional {
+    fn into(self) -> Vec<semver011::Identifier> {
+        self.numbers
+            .into_iter()
+            .map(semver011::Identifier::Numeric)
+            .collect()
+    }
+}
+
+#[cfg(feature = "semver011")]
+impl Into<Vec<semver011::Identifier>> for PreRelease<'_> {
+    fn into(self) -> Vec<semver011::Identifier> {
         self.identifier
             .into_iter()
             .flat_map(|s| s.split(['-', '.'].as_ref()))
@@ -368,9 +386,9 @@ impl Into<Vec<semver::Identifier>> for PreRelease<'_> {
     }
 }
 
-#[cfg(feature = "semver")]
-impl Into<Vec<semver::Identifier>> for Build<'_> {
-    fn into(self) -> Vec<semver::Identifier> {
+#[cfg(feature = "semver011")]
+impl Into<Vec<semver011::Identifier>> for Build<'_> {
+    fn into(self) -> Vec<semver011::Identifier> {
         self.identifier
             .into_iter()
             .flat_map(|s| s.split(['-', '.', '+'].as_ref()))
@@ -379,19 +397,19 @@ impl Into<Vec<semver::Identifier>> for Build<'_> {
     }
 }
 
-#[cfg(feature = "semver10")]
-impl Into<Vec<semver10::Identifier>> for Additional {
-    fn into(self) -> Vec<semver10::Identifier> {
+#[cfg(feature = "semver010")]
+impl Into<Vec<semver010::Identifier>> for Additional {
+    fn into(self) -> Vec<semver010::Identifier> {
         self.numbers
             .into_iter()
-            .map(semver10::Identifier::Numeric)
+            .map(semver010::Identifier::Numeric)
             .collect()
     }
 }
 
-#[cfg(feature = "semver10")]
-impl Into<Vec<semver10::Identifier>> for PreRelease<'_> {
-    fn into(self) -> Vec<semver10::Identifier> {
+#[cfg(feature = "semver010")]
+impl Into<Vec<semver010::Identifier>> for PreRelease<'_> {
+    fn into(self) -> Vec<semver010::Identifier> {
         self.identifier
             .into_iter()
             .flat_map(|s| s.split(['-', '.'].as_ref()))
@@ -400,9 +418,9 @@ impl Into<Vec<semver10::Identifier>> for PreRelease<'_> {
     }
 }
 
-#[cfg(feature = "semver10")]
-impl Into<Vec<semver10::Identifier>> for Build<'_> {
-    fn into(self) -> Vec<semver10::Identifier> {
+#[cfg(feature = "semver010")]
+impl Into<Vec<semver010::Identifier>> for Build<'_> {
+    fn into(self) -> Vec<semver010::Identifier> {
         self.identifier
             .into_iter()
             .flat_map(|s| s.split(['-', '.', '+'].as_ref()))
@@ -411,26 +429,26 @@ impl Into<Vec<semver10::Identifier>> for Build<'_> {
     }
 }
 
-#[cfg(feature = "semver")]
-fn parse_11(s: &str) -> semver::Identifier {
+#[cfg(feature = "semver011")]
+fn parse_11(s: &str) -> semver011::Identifier {
     s.parse::<u64>().map_or_else(
-        |_| semver::Identifier::AlphaNumeric(String::from(s)),
-        semver::Identifier::Numeric,
+        |_| semver011::Identifier::AlphaNumeric(String::from(s)),
+        semver011::Identifier::Numeric,
     )
 }
 
-#[cfg(feature = "semver10")]
-fn parse_10(s: &str) -> semver10::Identifier {
+#[cfg(feature = "semver010")]
+fn parse_10(s: &str) -> semver010::Identifier {
     s.parse::<u64>().map_or_else(
-        |_| semver10::Identifier::AlphaNumeric(String::from(s)),
-        semver10::Identifier::Numeric,
+        |_| semver010::Identifier::AlphaNumeric(String::from(s)),
+        semver010::Identifier::Numeric,
     )
 }
 
 #[cfg(test)]
 mod tests {
     use super::{Additional, Build, PreRelease};
-    use std::cmp::Ordering;
+    use std::{cmp::Ordering, convert::TryInto};
 
     #[test]
     fn test_additional_eq_cmp() {
@@ -520,15 +538,52 @@ mod tests {
     #[cfg(feature = "semver")]
     #[cfg_attr(feature = "semver", test)]
     fn test_into_semver() {
+        // let add = Additional {
+        //     numbers: vec![42, 37],
+        // };
+        // let identifiers: Vec<semver::Identifier> = add.into();
+
+        // assert_eq!(
+        //     vec![
+        //         semver::Identifier::Numeric(42),
+        //         semver::Identifier::Numeric(37),
+        //     ],
+        //     identifiers
+        // );
+
+        let pre = PreRelease {
+            identifier: Some("13.alpha-42beta"),
+        };
+        let identifiers: semver::Prerelease = pre.try_into().unwrap();
+
+        assert_eq!(
+            semver::Prerelease::new("13.alpha-42beta").unwrap(),
+            identifiers
+        );
+
+        let build = Build {
+            identifier: Some("13.alpha-42beta+37"),
+        };
+        let identifiers: semver::BuildMetadata = build.try_into().unwrap();
+
+        assert_eq!(
+            semver::BuildMetadata::new("13.alpha-42beta+37").unwrap(),
+            identifiers
+        );
+    }
+
+    #[cfg(feature = "semver011")]
+    #[cfg_attr(feature = "semver011", test)]
+    fn test_into_semver011() {
         let add = Additional {
             numbers: vec![42, 37],
         };
-        let identifiers: Vec<semver::Identifier> = add.into();
+        let identifiers: Vec<semver011::Identifier> = add.into();
 
         assert_eq!(
             vec![
-                semver::Identifier::Numeric(42),
-                semver::Identifier::Numeric(37),
+                semver011::Identifier::Numeric(42),
+                semver011::Identifier::Numeric(37),
             ],
             identifiers
         );
@@ -536,13 +591,13 @@ mod tests {
         let pre = PreRelease {
             identifier: Some("13.alpha-42beta"),
         };
-        let identifiers: Vec<semver::Identifier> = pre.into();
+        let identifiers: Vec<semver011::Identifier> = pre.into();
 
         assert_eq!(
             vec![
-                semver::Identifier::Numeric(13),
-                semver::Identifier::AlphaNumeric(String::from("alpha")),
-                semver::Identifier::AlphaNumeric(String::from("42beta")),
+                semver011::Identifier::Numeric(13),
+                semver011::Identifier::AlphaNumeric(String::from("alpha")),
+                semver011::Identifier::AlphaNumeric(String::from("42beta")),
             ],
             identifiers
         );
@@ -550,31 +605,31 @@ mod tests {
         let build = Build {
             identifier: Some("13.alpha-42beta+37"),
         };
-        let identifiers: Vec<semver::Identifier> = build.into();
+        let identifiers: Vec<semver011::Identifier> = build.into();
 
         assert_eq!(
             vec![
-                semver::Identifier::Numeric(13),
-                semver::Identifier::AlphaNumeric(String::from("alpha")),
-                semver::Identifier::AlphaNumeric(String::from("42beta")),
-                semver::Identifier::Numeric(37),
+                semver011::Identifier::Numeric(13),
+                semver011::Identifier::AlphaNumeric(String::from("alpha")),
+                semver011::Identifier::AlphaNumeric(String::from("42beta")),
+                semver011::Identifier::Numeric(37),
             ],
             identifiers
         );
     }
 
-    #[cfg(feature = "semver10")]
-    #[cfg_attr(feature = "semver10", test)]
-    fn test_into_semver10() {
+    #[cfg(feature = "semver010")]
+    #[cfg_attr(feature = "semver010", test)]
+    fn test_into_semver010() {
         let add = Additional {
             numbers: vec![42, 37],
         };
-        let identifiers: Vec<semver10::Identifier> = add.into();
+        let identifiers: Vec<semver010::Identifier> = add.into();
 
         assert_eq!(
             vec![
-                semver10::Identifier::Numeric(42),
-                semver10::Identifier::Numeric(37),
+                semver010::Identifier::Numeric(42),
+                semver010::Identifier::Numeric(37),
             ],
             identifiers
         );
@@ -582,13 +637,13 @@ mod tests {
         let pre = PreRelease {
             identifier: Some("13.alpha-42beta"),
         };
-        let identifiers: Vec<semver10::Identifier> = pre.into();
+        let identifiers: Vec<semver010::Identifier> = pre.into();
 
         assert_eq!(
             vec![
-                semver10::Identifier::Numeric(13),
-                semver10::Identifier::AlphaNumeric(String::from("alpha")),
-                semver10::Identifier::AlphaNumeric(String::from("42beta")),
+                semver010::Identifier::Numeric(13),
+                semver010::Identifier::AlphaNumeric(String::from("alpha")),
+                semver010::Identifier::AlphaNumeric(String::from("42beta")),
             ],
             identifiers
         );
@@ -596,14 +651,14 @@ mod tests {
         let build = Build {
             identifier: Some("13.alpha-42beta+37"),
         };
-        let identifiers: Vec<semver10::Identifier> = build.into();
+        let identifiers: Vec<semver010::Identifier> = build.into();
 
         assert_eq!(
             vec![
-                semver10::Identifier::Numeric(13),
-                semver10::Identifier::AlphaNumeric(String::from("alpha")),
-                semver10::Identifier::AlphaNumeric(String::from("42beta")),
-                semver10::Identifier::Numeric(37),
+                semver010::Identifier::Numeric(13),
+                semver010::Identifier::AlphaNumeric(String::from("alpha")),
+                semver010::Identifier::AlphaNumeric(String::from("42beta")),
+                semver010::Identifier::Numeric(37),
             ],
             identifiers
         );

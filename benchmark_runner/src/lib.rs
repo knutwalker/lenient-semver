@@ -27,15 +27,21 @@ macro_rules! run_group {
 }
 
 fn parser_benchmarks(c: &mut Criterion) {
-    run_group!(c, "semver11",
+    run_group!(c, "semver10",
         "semver" -> ::benchmarks::semver,
         "lenient" -> ::benchmarks::lenient_semver,
         "lite" -> ::benchmarks::lenient_version,
     );
 
-    run_group!(c, "semver10",
-        "semver" -> ::benchmarks::semver10,
-        "lenient" -> ::benchmarks::lenient_semver10,
+    run_group!(c, "semver011",
+        "semver" -> ::benchmarks::semver011,
+        "lenient" -> ::benchmarks::lenient_semver011,
+        "lite" -> ::benchmarks::lenient_version,
+    );
+
+    run_group!(c, "semver010",
+        "semver" -> ::benchmarks::semver010,
+        "lenient" -> ::benchmarks::lenient_semver010,
         "lenient_0.2" -> ::benchmarks::lenient_02_semver,
         "lite" -> ::benchmarks::lenient_version,
         "lite_0.2" -> ::benchmarks::lenient_02_lite,

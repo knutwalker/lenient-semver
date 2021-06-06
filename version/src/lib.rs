@@ -578,12 +578,28 @@ impl<'de: 'input, 'input> Deserialize<'de> for Version<'input> {
 }
 
 #[cfg(feature = "semver")]
-impl From<Version<'_>> for semver::Version {
+impl std::convert::TryFrom<Version<'_>> for semver::Version {
+    type Error = semver::Error;
+
+    fn try_from(v: Version<'_>) -> Result<Self, Self::Error> {
+        use std::convert::TryInto;
+        Ok(semver::Version {
+            major: v.major,
+            minor: v.minor,
+            patch: v.patch,
+            pre: v.pre.try_into()?,
+            build: v.build.try_into()?,
+        })
+    }
+}
+
+#[cfg(feature = "semver011")]
+impl From<Version<'_>> for semver011::Version {
     fn from(v: Version<'_>) -> Self {
-        let mut add: Vec<semver::Identifier> = v.additional.into();
-        let mut build: Vec<semver::Identifier> = v.build.into();
+        let mut add: Vec<semver011::Identifier> = v.additional.into();
+        let mut build: Vec<semver011::Identifier> = v.build.into();
         add.append(&mut build);
-        semver::Version {
+        semver011::Version {
             major: v.major,
             minor: v.minor,
             patch: v.patch,
@@ -593,13 +609,13 @@ impl From<Version<'_>> for semver::Version {
     }
 }
 
-#[cfg(feature = "semver10")]
-impl From<Version<'_>> for semver10::Version {
+#[cfg(feature = "semver010")]
+impl From<Version<'_>> for semver010::Version {
     fn from(v: Version<'_>) -> Self {
-        let mut add: Vec<semver10::Identifier> = v.additional.into();
-        let mut build: Vec<semver10::Identifier> = v.build.into();
+        let mut add: Vec<semver010::Identifier> = v.additional.into();
+        let mut build: Vec<semver010::Identifier> = v.build.into();
         add.append(&mut build);
-        semver10::Version {
+        semver010::Version {
             major: v.major,
             minor: v.minor,
             patch: v.patch,
@@ -611,6 +627,8 @@ impl From<Version<'_>> for semver10::Version {
 
 #[cfg(test)]
 mod tests {
+    use std::convert::TryFrom;
+
     use super::Version;
     use test_case::test_case;
 
@@ -964,13 +982,28 @@ mod tests {
     #[cfg_attr(feature = "semver", test)]
     fn test_into_semver() {
         let v = Version::new(1, 2, 3);
-        assert_eq!(semver::Version::new(1, 2, 3), semver::Version::from(v));
+        let conv = semver::Version::try_from(v);
+        let conv = conv.unwrap();
+        assert_eq!(semver::Version::new(1, 2, 3), conv);
     }
 
-    #[cfg(feature = "semver10")]
-    #[cfg_attr(feature = "semver10", test)]
-    fn test_into_semver10() {
+    #[cfg(feature = "semver011")]
+    #[cfg_attr(feature = "semver011", test)]
+    fn test_into_semver011() {
         let v = Version::new(1, 2, 3);
-        assert_eq!(semver10::Version::new(1, 2, 3), semver10::Version::from(v));
+        assert_eq!(
+            semver011::Version::new(1, 2, 3),
+            semver011::Version::from(v)
+        );
+    }
+
+    #[cfg(feature = "semver010")]
+    #[cfg_attr(feature = "semver010", test)]
+    fn test_into_semver010() {
+        let v = Version::new(1, 2, 3);
+        assert_eq!(
+            semver010::Version::new(1, 2, 3),
+            semver010::Version::from(v)
+        );
     }
 }
