@@ -12,15 +12,19 @@ keywords = ["lenient", "parser", "semver", "semantic", "version"]
 workspace = ".."
 
 [dependencies]
-lenient_semver_parser = { path = "../parser", version = "0.3", default-features = false, optional = true }
-semver = { version = "1", optional = true, package = "semver" }
-semver011 = { version = "0.11", optional = true, package = "semver" }
-semver010 = { version = "0.10", optional = true, package = "semver" }
+lenient_semver_parser = { path = "../parser", version = "0.3.1", default-features = false, optional = true }
+lenient_semver_version_builder = { path = "../builder", version = "0.3.1", default-features = false, optional = true }
+semver_v100 = { version = "1", optional = true, package = "semver" }
+semver_v011 = { version = "0.11", optional = true, package = "semver" }
+semver_v010 = { version = "0.10", optional = true, package = "semver" }
 serde = { version = "1", optional = true }
 
 [features]
-default = ["parser", "serde"]
-parser = ["lenient_semver_parser"]
+default = ["parser"]
+semver = ["semver_v100", "lenient_semver_version_builder/semver"]
+semver011 = ["semver_v011", "lenient_semver_version_builder/semver011"]
+semver010 = ["semver_v010", "lenient_semver_version_builder/semver010"]
+parser = ["lenient_semver_parser", "lenient_semver_version_builder"]
 
 [dev-dependencies]
 serde_json = "1"

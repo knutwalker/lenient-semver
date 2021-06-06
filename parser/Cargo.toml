@@ -12,18 +12,22 @@ keywords = ["lenient", "parser", "semver", "semantic", "version"]
 workspace = ".."
 
 [dependencies]
-semver = { version = "1", optional = true }
-semver011 = { version = "0.11", optional = true, package = "semver" }
-semver010 = { version = "0.10", optional = true, package = "semver" }
+lenient_semver_version_builder = { path = "../builder", version = "0.3.1", default-features = false }
+semver_v100 = { version = "1", optional = true, package = "semver" }
+semver_v011 = { version = "0.11", optional = true, package = "semver" }
+semver_v010 = { version = "0.10", optional = true, package = "semver" }
 
 [features]
 default = ["semver"]
+semver = ["semver_v100", "lenient_semver_version_builder/semver"]
+semver011 = ["semver_v011", "lenient_semver_version_builder/semver011"]
+semver010 = ["semver_v010", "lenient_semver_version_builder/semver010"]
 partial = []
 generator = []
 strict = []
 
 [dev-dependencies]
-semver = "1"
+semver_v100 = {version = "1", package = "semver" }
 test-case = "1"
 
 [package.metadata.docs.rs]

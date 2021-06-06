@@ -3,7 +3,9 @@
 //! Companion version struct for the lenient_semver_parser parser.
 //! Compared to [`semver::Version`], this version:
 //!  - Supports additional numeric identifiers (e.g. 1.2.3.4.5)
-//!  - Does not allocate Strings for metadata (it still allocated vectors)
+//!  - Does not allocate Strings for metadata
+//! Compared to [`semver::Version`] <= 0.11, this version:
+//!  - Does not allocate Vectors for metadata
 #![deny(
     bad_style,
     const_err,
@@ -578,28 +580,43 @@ impl<'de: 'input, 'input> Deserialize<'de> for Version<'input> {
 }
 
 #[cfg(feature = "semver")]
-impl std::convert::TryFrom<Version<'_>> for semver::Version {
-    type Error = semver::Error;
+impl<'input> From<Version<'input>> for semver_v100::Version {
+    fn from(v: Version<'input>) -> Self {
+        let build = if v.additional.is_empty() {
+            v.build.into()
+        } else {
+            let mut build = String::with_capacity(64);
+            for add in v.additional {
+                if !build.is_empty() {
+                    build.push('.');
+                }
+                let _ = write!(build, "{}", add);
+            }
+            if let Some(b) = *v.build {
+                build.push('.');
+                build.push_str(b);
+            }
+            let build = lenient_semver_version_builder::sanitize_build(build);
+            semver_v100::BuildMetadata::new(&build).unwrap()
+        };
 
-    fn try_from(v: Version<'_>) -> Result<Self, Self::Error> {
-        use std::convert::TryInto;
-        Ok(semver::Version {
+        semver_v100::Version {
             major: v.major,
             minor: v.minor,
             patch: v.patch,
-            pre: v.pre.try_into()?,
-            build: v.build.try_into()?,
-        })
+            pre: v.pre.into(),
+            build,
+        }
     }
 }
 
 #[cfg(feature = "semver011")]
-impl From<Version<'_>> for semver011::Version {
+impl From<Version<'_>> for semver_v011::Version {
     fn from(v: Version<'_>) -> Self {
-        let mut add: Vec<semver011::Identifier> = v.additional.into();
-        let mut build: Vec<semver011::Identifier> = v.build.into();
+        let mut add: Vec<semver_v011::Identifier> = v.additional.into();
+        let mut build: Vec<semver_v011::Identifier> = v.build.into();
         add.append(&mut build);
-        semver011::Version {
+        semver_v011::Version {
             major: v.major,
             minor: v.minor,
             patch: v.patch,
@@ -610,12 +627,12 @@ impl From<Version<'_>> for semver011::Version {
 }
 
 #[cfg(feature = "semver010")]
-impl From<Version<'_>> for semver010::Version {
+impl From<Version<'_>> for semver_v010::Version {
     fn from(v: Version<'_>) -> Self {
-        let mut add: Vec<semver010::Identifier> = v.additional.into();
-        let mut build: Vec<semver010::Identifier> = v.build.into();
+        let mut add: Vec<semver_v010::Identifier> = v.additional.into();
+        let mut build: Vec<semver_v010::Identifier> = v.build.into();
         add.append(&mut build);
-        semver010::Version {
+        semver_v010::Version {
             major: v.major,
             minor: v.minor,
             patch: v.patch,
@@ -627,8 +644,6 @@ impl From<Version<'_>> for semver010::Version {
 
 #[cfg(test)]
 mod tests {
-    use std::convert::TryFrom;
-
     use super::Version;
     use test_case::test_case;
 
@@ -982,9 +997,35 @@ mod tests {
     #[cfg_attr(feature = "semver", test)]
     fn test_into_semver() {
         let v = Version::new(1, 2, 3);
-        let conv = semver::Version::try_from(v);
-        let conv = conv.unwrap();
-        assert_eq!(semver::Version::new(1, 2, 3), conv);
+        assert_eq!(
+            semver_v100::Version::new(1, 2, 3),
+            semver_v100::Version::from(v)
+        );
+    }
+
+    #[cfg(feature = "semver")]
+    #[test]
+    fn test_into_semver_full() {
+        use lenient_semver_version_builder::VersionBuilder;
+        let mut v = <Version<'static> as VersionBuilder<'static>>::new();
+        v.set_major(1);
+        v.set_minor(2);
+        v.set_patch(3);
+        v.add_additional(42);
+        v.add_additional(1337);
+        v.add_pre_release("deprecated!alpha.01");
+        v.add_build("build+42");
+        let v = v.build();
+
+        let expected = semver_v100::Version {
+            major: 1,
+            minor: 2,
+            patch: 3,
+            pre: semver_v100::Prerelease::new("deprecated-alpha.1").unwrap(),
+            build: semver_v100::BuildMetadata::new("42.1337.build-42").unwrap(),
+        };
+
+        assert_eq!(expected, semver_v100::Version::from(v));
     }
 
     #[cfg(feature = "semver011")]
@@ -992,8 +1033,8 @@ mod tests {
     fn test_into_semver011() {
         let v = Version::new(1, 2, 3);
         assert_eq!(
-            semver011::Version::new(1, 2, 3),
-            semver011::Version::from(v)
+            semver_v011::Version::new(1, 2, 3),
+            semver_v011::Version::from(v)
         );
     }
 
@@ -1002,8 +1043,8 @@ mod tests {
     fn test_into_semver010() {
         let v = Version::new(1, 2, 3);
         assert_eq!(
-            semver010::Version::new(1, 2, 3),
-            semver010::Version::from(v)
+            semver_v010::Version::new(1, 2, 3),
+            semver_v010::Version::from(v)
         );
     }
 }

@@ -29,6 +29,7 @@
     while_true
 )]
 
+pub use lenient_semver_version_builder::VersionBuilder;
 use std::{fmt::Display, ops::Range};
 
 /// Parse a string slice into a Version.
@@ -50,6 +51,7 @@ use std::{fmt::Display, ops::Range};
 /// ## Examples
 ///
 /// ```rust
+/// # use semver_v100 as semver;
 /// use semver::Version;
 ///
 /// let version = lenient_semver_parser::parse::<Version>("1.2.3");
@@ -92,62 +94,10 @@ use std::{fmt::Display, ops::Range};
 /// );
 /// assert!(Version::parse("1.2.9876543210987654321098765432109876543210").is_err());
 /// ```
-pub fn parse<'input, V>(input: &'input str) -> Result<V::Out, Error<'input>>
-where
-    V: VersionBuilder<'input>,
-{
-    parse_internal::<V>(input, &DFA, &LOOKUP)
-}
-
-/// Parse a string slice into a Version without failing on unexpected input.
 ///
-/// This function tries to parse the string into a version and then stops when the input
-/// no longer parsed into a version. The remainder if the input is returned alongside the version.
-/// There still needs to be some valid version at the beginning of the string. That means
-/// parsing anything that does not start with a version still fails.
+/// ## Custom version builder example
 ///
-/// All differences mentioned in [`parse`] apply to this function as well.
-///
-/// ## Examples
-///
-/// ```rust
-/// use semver::Version;
-///
-/// assert_eq!(
-///     lenient_semver_parser::parse_partial::<Version>("1.2.3 and the rest").unwrap(),
-///     (Version::new(1, 2, 3), "and the rest")
-/// );
-///
-/// assert_eq!(
-///     lenient_semver_parser::parse_partial::<Version>("1,2").unwrap(),
-///     (Version::new(1, 0, 0), ",2")
-/// );
-///
-/// assert_eq!(
-///     lenient_semver_parser::parse_partial::<Version>("1 - 2").unwrap(),
-///     (Version::new(1, 0, 0), "- 2")
-/// );
-/// ```
-#[cfg(feature = "partial")]
-pub fn parse_partial<'input, V>(input: &'input str) -> Result<(V::Out, &'input str), Error<'input>>
-where
-    V: VersionBuilder<'input>,
-{
-    parse_partial_internal::<V>(input, &DFA, &EXTRA_LOOKUP)
-}
-
-/// Trait to abstract over version building.
-///
-/// The methods to implement in this trait represent the components of [`semver::Version`],
-/// but allow for parsing into a custom type.
-///
-/// The trait is generic over the lifetime of the input string, so that one could
-/// parse into a version without having to allocate.
-///
-/// Most methods have a default implementation that does nothing and ignores the input.
-/// This can be used to implement some form of validation without needing to keep the result.
-///
-/// ## Example
+/// A custom version builder can be used to implement some form of validation without needing to keep the result.
 ///
 /// ```rust
 /// # use lenient_semver_parser::VersionBuilder;
@@ -178,83 +128,49 @@ where
 /// assert!(!is_pre_release("1.2.3"));
 /// assert!(!is_pre_release("1.2.3+build"));
 /// ```
-pub trait VersionBuilder<'input> {
-    /// The return type of the final version.
-    type Out;
+pub fn parse<'input, V>(input: &'input str) -> Result<V::Out, Error<'input>>
+where
+    V: VersionBuilder<'input>,
+{
+    parse_internal::<V>(input, &DFA, &LOOKUP)
+}
 
-    /// Construct a new version builder.
-    ///
-    /// The function must not fail and the version (if returned from [`VersionBuilder::build`] at this point)
-    /// should represent something akin to "0.0.0"
-    fn new() -> Self;
-
-    /// Set the major version component.
-    ///
-    /// This method is the only required component and will be called
-    /// before [`VersionBuilder::build`].
-    #[allow(unused)]
-    fn set_major(&mut self, major: u64) {}
-
-    /// Set the minor version component.
-    ///
-    /// This component is optional and might not be called
-    /// before [`VersionBuilder::build`].
-    #[allow(unused)]
-    fn set_minor(&mut self, minor: u64) {}
-
-    /// Set the patch version component.
-    ///
-    /// This component is optional and might not be called
-    /// before [`VersionBuilder::build`].
-    #[allow(unused)]
-    fn set_patch(&mut self, patch: u64) {}
-
-    /// Add additional numeric components following patch and preceding pre-release.
-    ///
-    /// For a version like `1.2.3.4.5`, this would call add_additional with `4` and `5`.
-    ///
-    /// For strict semver versions, those values are invalid.
-    /// For lenient semver, those values are better represented as build than pre-release,
-    /// although they might be "in the same block" as pre-release.
-    /// In terms of comparing versions, the values added here should still have an impact.
-    ///
-    /// This component is optional and might not be called
-    /// before [`VersionBuilder::build`].
-    #[allow(unused)]
-    fn add_additional(&mut self, num: u64) {}
-
-    /// The pre-release metadata.
-    ///
-    /// The string might represent any alpha-numeric identifier,
-    /// including numbers with or without leading zeroes.
-    /// It is up to the implementor to parse those into more specific
-    /// identifiers, if required.
-    ///
-    /// This component is optional and might not be called
-    /// before [`VersionBuilder::build`].
-    ///
-    /// This method might be called multiple times,
-    /// although the default implementation produces only one identifier.
-    #[allow(unused)]
-    fn add_pre_release(&mut self, pre_release: &'input str) {}
-
-    /// The build identifier.
-    ///
-    /// The string might represent any alpha-numeric identifier,
-    /// including numbers with or without leading zeroes.
-    /// It is up to the implementor to parse those into more specific
-    /// identifiers, if required.
-    ///
-    /// This component is optional and might not be called
-    /// before [`VersionBuilder::build`].
-    ///
-    /// This method might be called multiple times,
-    /// although the default implementation produces only one identifier.
-    #[allow(unused)]
-    fn add_build(&mut self, build: &'input str) {}
-
-    /// Construct the final version.
-    fn build(self) -> Self::Out;
+/// Parse a string slice into a Version without failing on unexpected input.
+///
+/// This function tries to parse the string into a version and then stops when the input
+/// no longer parsed into a version. The remainder if the input is returned alongside the version.
+/// There still needs to be some valid version at the beginning of the string. That means
+/// parsing anything that does not start with a version still fails.
+///
+/// All differences mentioned in [`parse`] apply to this function as well.
+///
+/// ## Examples
+///
+/// ```rust
+/// # use semver_v100 as semver;
+/// use semver::Version;
+///
+/// assert_eq!(
+///     lenient_semver_parser::parse_partial::<Version>("1.2.3 and the rest").unwrap(),
+///     (Version::new(1, 2, 3), "and the rest")
+/// );
+///
+/// assert_eq!(
+///     lenient_semver_parser::parse_partial::<Version>("1,2").unwrap(),
+///     (Version::new(1, 0, 0), ",2")
+/// );
+///
+/// assert_eq!(
+///     lenient_semver_parser::parse_partial::<Version>("1 - 2").unwrap(),
+///     (Version::new(1, 0, 0), "- 2")
+/// );
+/// ```
+#[cfg(feature = "partial")]
+pub fn parse_partial<'input, V>(input: &'input str) -> Result<(V::Out, &'input str), Error<'input>>
+where
+    V: VersionBuilder<'input>,
+{
+    parse_partial_internal::<V>(input, &DFA, &EXTRA_LOOKUP)
 }
 
 /// Possible errors that happen during parsing
@@ -263,6 +179,7 @@ pub trait VersionBuilder<'input> {
 /// # Example
 ///
 /// ```rust
+/// # use semver_v100 as semver;
 /// use semver::Version;
 ///
 /// let error = lenient_semver_parser::parse::<Version>("1+").unwrap_err();
@@ -296,6 +213,7 @@ impl<'input> Error<'input> {
     /// # Examples
     ///
     /// ```rust
+    /// # use semver_v100 as semver;
     /// let error = lenient_semver_parser::parse::<semver::Version>("1+").unwrap_err();
     /// assert_eq!(error.input(), "1+");
     /// ```
@@ -309,6 +227,7 @@ impl<'input> Error<'input> {
     /// # Examples
     ///
     /// ```rust
+    /// # use semver_v100 as semver;
     /// let error = lenient_semver_parser::parse::<semver::Version>("1!").unwrap_err();
     /// assert_eq!(error.error_span(), 1..2);
     /// ```
@@ -322,6 +241,7 @@ impl<'input> Error<'input> {
     /// # Examples
     ///
     /// ```rust
+    /// # use semver_v100 as semver;
     /// assert_eq!(
     ///     lenient_semver_parser::parse::<semver::Version>("").unwrap_err().error_kind(),
     ///     lenient_semver_parser::ErrorKind::MissingMajorNumber
@@ -357,6 +277,7 @@ impl<'input> Error<'input> {
     /// # Examples
     ///
     /// ```rust
+    /// # use semver_v100 as semver;
     /// let error = lenient_semver_parser::parse::<semver::Version>("1!").unwrap_err();
     /// assert_eq!(error.erroneous_input(), "!");
     /// ```
@@ -370,6 +291,7 @@ impl<'input> Error<'input> {
     /// # Examples
     ///
     /// ```rust
+    /// # use semver_v100 as semver;
     /// let error = lenient_semver_parser::parse::<semver::Version>("1.").unwrap_err();
     /// assert_eq!(error.error_line(), String::from("Could not parse the minor identifier: No input"));
     /// ```
@@ -377,6 +299,7 @@ impl<'input> Error<'input> {
     /// This is equivalent to the [`Display`] implementation, which can be further customized with format specifiers.
     ///
     /// ```rust
+    /// # use semver_v100 as semver;
     /// let error = lenient_semver_parser::parse::<semver::Version>("1?").unwrap_err();
     /// assert_eq!(format!("{:!^42}", error), String::from("!!!!!!!!!!!!!!Unexpected `?`!!!!!!!!!!!!!!"));
     /// ```
@@ -410,6 +333,7 @@ impl<'input> Error<'input> {
     /// # Examples
     ///
     /// ```rust
+    /// # use semver_v100 as semver;
     /// let error = lenient_semver_parser::parse::<semver::Version>("foo").unwrap_err();
     /// assert_eq!(error.indicate_erroneous_input(), "^");
     ///
@@ -533,338 +457,6 @@ impl PartialOrd for Error<'_> {
 impl Ord for Error<'_> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.error.cmp(&other.error)
-    }
-}
-
-#[cfg(feature = "semver")]
-impl<'input> VersionBuilder<'input> for semver::Version {
-    type Out = Self;
-
-    fn new() -> Self {
-        semver::Version::new(0, 0, 0)
-    }
-
-    fn set_major(&mut self, major: u64) {
-        self.major = major;
-    }
-
-    fn set_minor(&mut self, minor: u64) {
-        self.minor = minor;
-    }
-
-    fn set_patch(&mut self, patch: u64) {
-        self.patch = patch;
-    }
-
-    fn add_additional(&mut self, num: u64) {
-        if self.build.is_empty() {
-            self.build = semver::BuildMetadata::new(&format!("{}", num)).unwrap();
-        } else {
-            let build = self.build.as_str();
-            let build = format!("{}.{}", build, num);
-            self.build = semver::BuildMetadata::new(&build).unwrap();
-        }
-    }
-
-    fn add_pre_release(&mut self, pre_release: &'input str) {
-        self.pre = semver::Prerelease::new(&sanitize_pre_release(pre_release)).unwrap();
-    }
-
-    fn add_build(&mut self, build: &'input str) {
-        let build = if self.build.is_empty() {
-            semver::BuildMetadata::new(&sanitize_build(build))
-        } else {
-            let build = format!("{}.{}", self.build, build);
-            semver::BuildMetadata::new(&sanitize_build(build))
-        };
-        self.build = build.unwrap();
-    }
-
-    fn build(self) -> Self::Out {
-        self
-    }
-}
-
-#[cfg(any(test, feature = "semver011"))]
-impl<'input> VersionBuilder<'input> for semver011::Version {
-    type Out = Self;
-
-    fn new() -> Self {
-        semver011::Version::new(0, 0, 0)
-    }
-
-    fn set_major(&mut self, major: u64) {
-        self.major = major;
-    }
-
-    fn set_minor(&mut self, minor: u64) {
-        self.minor = minor;
-    }
-
-    fn set_patch(&mut self, patch: u64) {
-        self.patch = patch;
-    }
-
-    fn add_additional(&mut self, num: u64) {
-        self.build.push(semver011::Identifier::Numeric(num))
-    }
-
-    fn add_pre_release(&mut self, pre_release: &'input str) {
-        self.pre.extend(
-            pre_release
-                .split(['.', '-'].as_ref())
-                .map(try_num_semver011),
-        );
-    }
-
-    fn add_build(&mut self, build: &'input str) {
-        self.build
-            .extend(build.split(['.', '-', '+'].as_ref()).map(try_num_semver011));
-    }
-
-    fn build(self) -> Self::Out {
-        self
-    }
-}
-
-#[cfg(feature = "semver010")]
-impl<'input> VersionBuilder<'input> for semver010::Version {
-    type Out = Self;
-
-    fn new() -> Self {
-        semver010::Version::new(0, 0, 0)
-    }
-
-    fn set_major(&mut self, major: u64) {
-        self.major = major;
-    }
-
-    fn set_minor(&mut self, minor: u64) {
-        self.minor = minor;
-    }
-
-    fn set_patch(&mut self, patch: u64) {
-        self.patch = patch;
-    }
-
-    fn add_additional(&mut self, num: u64) {
-        self.build.push(semver010::Identifier::Numeric(num))
-    }
-
-    fn add_pre_release(&mut self, pre_release: &'input str) {
-        self.pre.extend(
-            pre_release
-                .split(['.', '-'].as_ref())
-                .map(try_num_semver010),
-        );
-    }
-
-    fn add_build(&mut self, build: &'input str) {
-        self.build
-            .extend(build.split(['-', '.', '+'].as_ref()).map(try_num_semver010));
-    }
-
-    fn build(self) -> Self::Out {
-        self
-    }
-}
-
-#[cfg(feature = "semver")]
-fn sanitize_pre_release<'s>(s: impl Into<std::borrow::Cow<'s, str>>) -> std::borrow::Cow<'s, str> {
-    remove_empty_segments(remove_leading_zeroes(remove_illegal_characters(s)))
-}
-
-#[cfg(feature = "semver")]
-fn sanitize_build<'s>(s: impl Into<std::borrow::Cow<'s, str>>) -> std::borrow::Cow<'s, str> {
-    remove_empty_segments(remove_illegal_characters(s))
-}
-
-#[cfg(all(test, feature = "semver"))]
-#[test]
-fn test_sanitize_pre_release() {
-    assert_eq!(
-        "a-b.0.1010.-001",
-        &sanitize_pre_release("a+b.000..01010...?001..")
-    );
-}
-
-#[cfg(all(test, feature = "semver"))]
-#[test]
-fn test_sanitize_build() {
-    assert_eq!(
-        "a-b.000.01010.-001",
-        &sanitize_build("a+b.000..01010...?001..")
-    );
-}
-
-#[cfg(feature = "semver")]
-fn remove_illegal_characters<'s>(
-    s: impl Into<std::borrow::Cow<'s, str>>,
-) -> std::borrow::Cow<'s, str> {
-    fn illegal_char(c: char) -> bool {
-        !matches!(c, 'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '.')
-    }
-    let s = s.into();
-    if s.contains(illegal_char) {
-        s.replace(illegal_char, "-").into()
-    } else {
-        s.into()
-    }
-}
-
-#[cfg(all(test, feature = "semver"))]
-#[test]
-fn test_remove_illegal_characters() {
-    assert_eq!("a-b", &remove_illegal_characters("a+b"));
-    assert_eq!("a-b", &remove_illegal_characters("a?b"));
-    assert_eq!("a-b", &remove_illegal_characters("a*b"));
-    assert_eq!("a-b", &remove_illegal_characters("a!b"));
-    assert_eq!("a-b", &remove_illegal_characters("a🙈b"));
-}
-
-#[cfg(feature = "semver")]
-fn remove_leading_zeroes<'s>(s: impl Into<std::borrow::Cow<'s, str>>) -> std::borrow::Cow<'s, str> {
-    fn illegal_zero(s: &str) -> bool {
-        s.len() > 1 && s.starts_with('0') && s.bytes().all(|b| b.is_ascii_digit())
-    }
-    let mut s = s.into();
-    if s.split('.').any(illegal_zero) {
-        let st: &mut String = s.to_mut();
-        let mut start = 0;
-        while start < st.len() {
-            let mut end = match st[start..].find('.') {
-                Some(end) => end + start,
-                None => st.len(),
-            };
-
-            if illegal_zero(&st[start..end]) {
-                match st[start..end].find(|c| c > '0') {
-                    Some(leading_zeroes) => {
-                        let _ = st.drain(start..start + leading_zeroes);
-                        end -= leading_zeroes;
-                    }
-                    None => {
-                        st.replace_range(start..end, "0");
-                        end = start + 1;
-                    }
-                }
-            }
-            start = end + 1;
-        }
-    }
-
-    s
-}
-
-#[cfg(all(test, feature = "semver"))]
-#[test]
-fn test_remove_leading_zeroes() {
-    assert_eq!("0", &remove_leading_zeroes("0"));
-    assert_eq!("0", &remove_leading_zeroes("000000000"));
-    assert_eq!("1", &remove_leading_zeroes("1"));
-    assert_eq!("1", &remove_leading_zeroes("01"));
-    assert_eq!("1", &remove_leading_zeroes("0001"));
-    assert_eq!("101", &remove_leading_zeroes("101"));
-    assert_eq!("101", &remove_leading_zeroes("0101"));
-    assert_eq!("101", &remove_leading_zeroes("000101"));
-    assert_eq!("0a", &remove_leading_zeroes("0a"));
-    assert_eq!("00a", &remove_leading_zeroes("00a"));
-    assert_eq!("0.0.0", &remove_leading_zeroes("0.0.0"));
-    assert_eq!("0.0.0", &remove_leading_zeroes("0.0000.0"));
-    assert_eq!("0.11.0", &remove_leading_zeroes("0.0011.0"));
-    assert_eq!("0.11.101", &remove_leading_zeroes("0.0011.0101"));
-}
-
-#[cfg(feature = "semver")]
-fn remove_empty_segments<'s>(s: impl Into<std::borrow::Cow<'s, str>>) -> std::borrow::Cow<'s, str> {
-    let mut s = s.into();
-
-    if !s.is_empty() && s.split('.').any(str::is_empty) {
-        let start = match s.find(|c| c != '.') {
-            Some(start) => start,
-            None => {
-                s.to_mut().clear();
-                return s;
-            }
-        };
-        let mut end = match s.rfind(|c| c != '.') {
-            Some(end) => end + 1,
-            None => {
-                s.to_mut().clear();
-                return s;
-            }
-        };
-
-        let st: &mut String = s.to_mut();
-        if start > 0 {
-            let _ = st.drain(..start);
-            end -= start;
-        }
-        if end < st.len() {
-            let _ = st.drain(end..);
-        }
-
-        let mut pos = 0;
-        while pos < st.len() {
-            let next = match st[pos..].find('.') {
-                Some(next) => next + pos,
-                None => st.len(),
-            };
-
-            if next == pos {
-                let _ = st.remove(pos);
-            } else {
-                pos = next + 1;
-            }
-        }
-    }
-
-    s
-}
-
-#[cfg(all(test, feature = "semver"))]
-#[test]
-fn test_remove_empty_segments() {
-    assert_eq!("123", &remove_empty_segments("123"));
-    assert_eq!("123", &remove_empty_segments(".123"));
-    assert_eq!("123", &remove_empty_segments("..123"));
-    assert_eq!("123", &remove_empty_segments("....123"));
-    assert_eq!("abc.123", &remove_empty_segments("abc.123"));
-    assert_eq!("abc.123", &remove_empty_segments("abc..123"));
-    assert_eq!("abc.123", &remove_empty_segments("abc...123"));
-    assert_eq!("abc.123", &remove_empty_segments("abc.....123"));
-    assert_eq!("123", &remove_empty_segments("123."));
-    assert_eq!("123", &remove_empty_segments("123.."));
-    assert_eq!("123", &remove_empty_segments("123...."));
-    assert_eq!("abc.123", &remove_empty_segments("abc.123."));
-    assert_eq!("abc.123", &remove_empty_segments("abc.123.."));
-    assert_eq!("abc.123", &remove_empty_segments("abc.123...."));
-    assert_eq!("", &remove_empty_segments("."));
-    assert_eq!("", &remove_empty_segments(".."));
-    assert_eq!("", &remove_empty_segments("...."));
-}
-
-#[cfg(any(test, feature = "semver011"))]
-fn try_num_semver011(s: &str) -> semver011::Identifier {
-    try_num(s).map_err(String::from).map_or_else(
-        semver011::Identifier::AlphaNumeric,
-        semver011::Identifier::Numeric,
-    )
-}
-
-#[cfg(feature = "semver010")]
-fn try_num_semver010(s: &str) -> semver010::Identifier {
-    try_num(s).map_err(String::from).map_or_else(
-        semver010::Identifier::AlphaNumeric,
-        semver010::Identifier::Numeric,
-    )
-}
-
-#[cfg(any(test, feature = "semver011", feature = "semver010"))]
-fn try_num(s: &str) -> Result<u64, &str> {
-    match s.parse::<u64>() {
-        Ok(num) if !s.starts_with('0') || s == "0" => Ok(num),
-        _ => Err(s),
     }
 }
 
@@ -1521,6 +1113,9 @@ fn span_from(input: &str, index: usize) -> Span {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use semver_v010 as semver010;
+    use semver_v011 as semver011;
+    use semver_v100 as semver;
     use test_case::test_case;
 
     #[cfg(feature = "semver")]
@@ -1551,38 +1146,36 @@ mod tests {
 
     macro_rules! vers {
         ($major:literal . $minor:literal . $patch:literal) => {
-            ::semver::Version::new($major, $minor, $patch)
+            semver::Version::new($major, $minor, $patch)
         };
 
-        ($major:literal . $minor:literal . $patch:literal - $pre:literal ) => {
-            ::semver::Version {
-                major: $major,
-                minor: $minor,
-                patch: $patch,
-                pre: ::semver::Prerelease::new(&sanitize_pre_release($pre)).unwrap(),
-                build: ::semver::BuildMetadata::EMPTY,
-            }
-        };
+        ($major:literal . $minor:literal . $patch:literal - $pre:literal ) => {{
+            let mut v = <Version as VersionBuilder<'static>>::new();
+            v.set_major($major);
+            v.set_minor($minor);
+            v.set_patch($patch);
+            v.add_pre_release($pre);
+            v.build()
+        }};
 
-        ($major:literal . $minor:literal . $patch:literal + $build:literal ) => {
-            ::semver::Version {
-                major: $major,
-                minor: $minor,
-                patch: $patch,
-                pre: ::semver::Prerelease::EMPTY,
-                build: ::semver::BuildMetadata::new(&sanitize_build($build)).unwrap(),
-            }
-        };
+        ($major:literal . $minor:literal . $patch:literal + $build:literal ) => {{
+            let mut v = <Version as VersionBuilder<'static>>::new();
+            v.set_major($major);
+            v.set_minor($minor);
+            v.set_patch($patch);
+            v.add_build($build);
+            v.build()
+        }};
 
-        ($major:literal . $minor:literal . $patch:literal - $pre:literal + $build:literal ) => {
-            ::semver::Version {
-                major: $major,
-                minor: $minor,
-                patch: $patch,
-                pre: ::semver::Prerelease::new(&sanitize_pre_release($pre)).unwrap(),
-                build: ::semver::BuildMetadata::new(&sanitize_build($build)).unwrap(),
-            }
-        };
+        ($major:literal . $minor:literal . $patch:literal - $pre:literal + $build:literal ) => {{
+            let mut v = <Version as VersionBuilder<'static>>::new();
+            v.set_major($major);
+            v.set_minor($minor);
+            v.set_patch($patch);
+            v.add_pre_release($pre);
+            v.add_build($build);
+            v.build()
+        }};
     }
 
     #[test_case("1" => Ok(vers!(1 . 0 . 0)); "major only")]
@@ -1973,6 +1566,7 @@ pub mod strict {
     /// ## Examples
     ///
     /// ```rust
+    /// # use semver_v100 as semver;
     /// use semver::Version;
     ///
     /// let version = lenient_semver_parser::strict::parse::<Version>("1.2.3");
@@ -2007,6 +1601,7 @@ pub mod strict {
     /// ## Examples
     ///
     /// ```rust
+    /// # use semver_v100 as semver;
     /// use semver::Version;
     ///
     /// assert_eq!(
@@ -2124,7 +1719,7 @@ pub mod strict {
     #[cfg(test)]
     mod tests {
         use super::*;
-        use semver::Version;
+        use semver_v100::Version;
         use test_case::test_case;
 
         #[test_case("1.2.3")]
