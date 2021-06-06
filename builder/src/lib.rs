@@ -267,36 +267,28 @@ pub fn sanitize_build<'s>(s: impl Into<std::borrow::Cow<'s, str>>) -> std::borro
 /// Splits a single input into valid pre-release identifiers for [`semver011::Version`].
 #[cfg(feature = "semver011")]
 #[inline]
-pub fn split_pre_release_011<'input>(
-    s: &'input str,
-) -> impl Iterator<Item = semver011::Identifier> + 'input {
+pub fn split_pre_release_011(s: &str) -> impl Iterator<Item = semver011::Identifier> + '_ {
     s.split(['.', '-'].as_ref()).map(try_num_semver011)
 }
 
 /// Splits a single input into valid pre-release identifiers for [`semver010::Version`].
 #[cfg(feature = "semver010")]
 #[inline]
-pub fn split_pre_release_010<'input>(
-    s: &'input str,
-) -> impl Iterator<Item = semver010::Identifier> + 'input {
+pub fn split_pre_release_010(s: &str) -> impl Iterator<Item = semver010::Identifier> + '_ {
     s.split(['.', '-'].as_ref()).map(try_num_semver010)
 }
 
 /// Splits a single input into valid build identifiers for [`semver011::Version`].
 #[cfg(feature = "semver011")]
 #[inline]
-pub fn split_build_011<'input>(
-    s: &'input str,
-) -> impl Iterator<Item = semver011::Identifier> + 'input {
+pub fn split_build_011(s: &str) -> impl Iterator<Item = semver011::Identifier> + '_ {
     s.split(['.', '-', '+'].as_ref()).map(try_num_semver011)
 }
 
 /// Splits a single input into valid build identifiers for [`semver010::Version`].
 #[cfg(feature = "semver010")]
 #[inline]
-pub fn split_build_010<'input>(
-    s: &'input str,
-) -> impl Iterator<Item = semver010::Identifier> + 'input {
+pub fn split_build_010(s: &str) -> impl Iterator<Item = semver010::Identifier> + '_ {
     s.split(['.', '-', '+'].as_ref()).map(try_num_semver010)
 }
 
@@ -311,7 +303,7 @@ fn remove_illegal_characters<'s>(
     if s.contains(illegal_char) {
         s.replace(illegal_char, "-").into()
     } else {
-        s.into()
+        s
     }
 }
 
