@@ -38,4 +38,4 @@ semver_v100 = { version = "1", package = "semver" }
 
 
 [package.metadata.docs.rs]
-features = [ "semver100", "semver011", "semver010", "version_lite", "version_serde" ]
+features = [ "semver", "semver011", "semver010", "parse_partial", "version_lite", "version_serde" ]

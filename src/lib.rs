@@ -503,7 +503,8 @@ pub use lenient_version::{Version, Version as VersionLite};
 /// ## Examples
 ///
 /// ```rust
-/// # use semver_v100::Version;
+/// # use semver_v100 as semver;;
+/// use semver::Version;
 ///
 /// let version = lenient_semver::parse("1.2.3");
 /// assert_eq!(version, Ok(Version::new(1, 2, 3)));
@@ -546,8 +547,8 @@ pub use lenient_version::{Version, Version as VersionLite};
 /// assert!(Version::parse("1.2.9876543210987654321098765432109876543210").is_err());
 /// ```
 ///
-/// This method is fixes to return a [`semver::Version`].
-/// A more flexible variant is [`lenient_semver::parse_into`].
+/// This method is fixed to return a [`semver_v100::Version`].
+/// A more flexible variant is [`parse_into`].
 #[cfg(feature = "semver")]
 pub fn parse(input: &str) -> Result<semver_v100::Version, parser::Error> {
     parser::parse::<semver_v100::Version>(input)
