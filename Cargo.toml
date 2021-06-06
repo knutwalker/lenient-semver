@@ -31,7 +31,7 @@ version_semver = [ "version_lite", "lenient_version/semver" ]
 version_serde = [ "version_lite", "lenient_version/serde" ]
 
 [dev-dependencies]
-lenient_version = { path = "version", features = [ "serde" ] ,version = "^0.4"}
+lenient_version = { path = "version", features = [ "serde" ] }
 serde = { version = "1", package = "serde", features = ["derive"] }
 serde_json = "1"
 semver_v100 = { version = "1", package = "semver" }
