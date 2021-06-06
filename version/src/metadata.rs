@@ -5,7 +5,7 @@ use std::{
 };
 
 /// Additional numeric identifiers, not part of the semver spec.
-#[derive(Debug, Clone, Default, Eq, Hash)]
+#[derive(Debug, Clone, Default, Eq)]
 pub struct Additional {
     numbers: Vec<u64>,
 }
@@ -119,6 +119,12 @@ impl From<&[u64]> for Additional {
         Self {
             numbers: numbers.to_vec(),
         }
+    }
+}
+
+impl std::hash::Hash for Additional {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::hash::Hash::hash(&self.numbers, state)
     }
 }
 
