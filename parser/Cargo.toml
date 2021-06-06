@@ -12,7 +12,7 @@ keywords = ["lenient", "parser", "semver", "semantic", "version"]
 workspace = ".."
 
 [dependencies]
-lenient_semver_version_builder = { path = "../builder", version = "0.3.1", default-features = false }
+lenient_semver_version_builder = { path = "../builder", version = "^0.4.0", default-features = false }
 semver_v100 = { version = "1", optional = true, package = "semver" }
 semver_v011 = { version = "0.11", optional = true, package = "semver" }
 semver_v010 = { version = "0.10", optional = true, package = "semver" }
