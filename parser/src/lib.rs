@@ -257,108 +257,6 @@ pub trait VersionBuilder<'input> {
     fn build(self) -> Self::Out;
 }
 
-#[cfg(any(test, feature = "semver", feature = "semver10",))]
-fn try_num(s: &str) -> Result<u64, &str> {
-    match s.parse::<u64>() {
-        Ok(num) if !s.starts_with('0') || s == "0" => Ok(num),
-        _ => Err(s),
-    }
-}
-
-#[cfg(any(test, feature = "semver"))]
-fn try_num_semver(s: &str) -> semver::Identifier {
-    try_num(s).map_err(String::from).map_or_else(
-        semver::Identifier::AlphaNumeric,
-        semver::Identifier::Numeric,
-    )
-}
-
-#[cfg(feature = "semver10")]
-fn try_num_semver10(s: &str) -> semver10::Identifier {
-    try_num(s).map_err(String::from).map_or_else(
-        semver10::Identifier::AlphaNumeric,
-        semver10::Identifier::Numeric,
-    )
-}
-
-#[cfg(any(test, feature = "semver"))]
-impl<'input> VersionBuilder<'input> for semver::Version {
-    type Out = Self;
-
-    fn new() -> Self {
-        semver::Version::new(0, 0, 0)
-    }
-
-    fn set_major(&mut self, major: u64) {
-        self.major = major;
-    }
-
-    fn set_minor(&mut self, minor: u64) {
-        self.minor = minor;
-    }
-
-    fn set_patch(&mut self, patch: u64) {
-        self.patch = patch;
-    }
-
-    fn add_additional(&mut self, num: u64) {
-        self.build.push(semver::Identifier::Numeric(num))
-    }
-
-    fn add_pre_release(&mut self, pre_release: &'input str) {
-        self.pre
-            .extend(pre_release.split(['.', '-'].as_ref()).map(try_num_semver));
-    }
-
-    fn add_build(&mut self, build: &'input str) {
-        self.build
-            .extend(build.split(['.', '-', '+'].as_ref()).map(try_num_semver));
-    }
-
-    fn build(self) -> Self::Out {
-        self
-    }
-}
-
-#[cfg(feature = "semver10")]
-impl<'input> VersionBuilder<'input> for semver10::Version {
-    type Out = Self;
-
-    fn new() -> Self {
-        semver10::Version::new(0, 0, 0)
-    }
-
-    fn set_major(&mut self, major: u64) {
-        self.major = major;
-    }
-
-    fn set_minor(&mut self, minor: u64) {
-        self.minor = minor;
-    }
-
-    fn set_patch(&mut self, patch: u64) {
-        self.patch = patch;
-    }
-
-    fn add_additional(&mut self, num: u64) {
-        self.build.push(semver10::Identifier::Numeric(num))
-    }
-
-    fn add_pre_release(&mut self, pre_release: &'input str) {
-        self.pre
-            .extend(pre_release.split(['.', '-'].as_ref()).map(try_num_semver10));
-    }
-
-    fn add_build(&mut self, build: &'input str) {
-        self.build
-            .extend(build.split(['-', '.', '+'].as_ref()).map(try_num_semver10));
-    }
-
-    fn build(self) -> Self::Out {
-        self
-    }
-}
-
 /// Possible errors that happen during parsing
 /// and the location of the token where the error occurred.
 ///
@@ -638,6 +536,338 @@ impl Ord for Error<'_> {
     }
 }
 
+#[cfg(feature = "semver")]
+impl<'input> VersionBuilder<'input> for semver::Version {
+    type Out = Self;
+
+    fn new() -> Self {
+        semver::Version::new(0, 0, 0)
+    }
+
+    fn set_major(&mut self, major: u64) {
+        self.major = major;
+    }
+
+    fn set_minor(&mut self, minor: u64) {
+        self.minor = minor;
+    }
+
+    fn set_patch(&mut self, patch: u64) {
+        self.patch = patch;
+    }
+
+    fn add_additional(&mut self, num: u64) {
+        if self.build.is_empty() {
+            self.build = semver::BuildMetadata::new(&format!("{}", num)).unwrap();
+        } else {
+            let build = self.build.as_str();
+            let build = format!("{}.{}", build, num);
+            self.build = semver::BuildMetadata::new(&build).unwrap();
+        }
+    }
+
+    fn add_pre_release(&mut self, pre_release: &'input str) {
+        self.pre = semver::Prerelease::new(&sanitize_pre_release(pre_release)).unwrap();
+    }
+
+    fn add_build(&mut self, build: &'input str) {
+        let build = if self.build.is_empty() {
+            semver::BuildMetadata::new(&sanitize_build(build))
+        } else {
+            let build = format!("{}.{}", self.build, build);
+            semver::BuildMetadata::new(&sanitize_build(build))
+        };
+        self.build = build.unwrap();
+    }
+
+    fn build(self) -> Self::Out {
+        self
+    }
+}
+
+#[cfg(any(test, feature = "semver011"))]
+impl<'input> VersionBuilder<'input> for semver011::Version {
+    type Out = Self;
+
+    fn new() -> Self {
+        semver011::Version::new(0, 0, 0)
+    }
+
+    fn set_major(&mut self, major: u64) {
+        self.major = major;
+    }
+
+    fn set_minor(&mut self, minor: u64) {
+        self.minor = minor;
+    }
+
+    fn set_patch(&mut self, patch: u64) {
+        self.patch = patch;
+    }
+
+    fn add_additional(&mut self, num: u64) {
+        self.build.push(semver011::Identifier::Numeric(num))
+    }
+
+    fn add_pre_release(&mut self, pre_release: &'input str) {
+        self.pre.extend(
+            pre_release
+                .split(['.', '-'].as_ref())
+                .map(try_num_semver011),
+        );
+    }
+
+    fn add_build(&mut self, build: &'input str) {
+        self.build
+            .extend(build.split(['.', '-', '+'].as_ref()).map(try_num_semver011));
+    }
+
+    fn build(self) -> Self::Out {
+        self
+    }
+}
+
+#[cfg(feature = "semver010")]
+impl<'input> VersionBuilder<'input> for semver010::Version {
+    type Out = Self;
+
+    fn new() -> Self {
+        semver010::Version::new(0, 0, 0)
+    }
+
+    fn set_major(&mut self, major: u64) {
+        self.major = major;
+    }
+
+    fn set_minor(&mut self, minor: u64) {
+        self.minor = minor;
+    }
+
+    fn set_patch(&mut self, patch: u64) {
+        self.patch = patch;
+    }
+
+    fn add_additional(&mut self, num: u64) {
+        self.build.push(semver010::Identifier::Numeric(num))
+    }
+
+    fn add_pre_release(&mut self, pre_release: &'input str) {
+        self.pre.extend(
+            pre_release
+                .split(['.', '-'].as_ref())
+                .map(try_num_semver010),
+        );
+    }
+
+    fn add_build(&mut self, build: &'input str) {
+        self.build
+            .extend(build.split(['-', '.', '+'].as_ref()).map(try_num_semver010));
+    }
+
+    fn build(self) -> Self::Out {
+        self
+    }
+}
+
+#[cfg(feature = "semver")]
+fn sanitize_pre_release<'s>(s: impl Into<std::borrow::Cow<'s, str>>) -> std::borrow::Cow<'s, str> {
+    remove_empty_segments(remove_leading_zeroes(remove_illegal_characters(s)))
+}
+
+#[cfg(feature = "semver")]
+fn sanitize_build<'s>(s: impl Into<std::borrow::Cow<'s, str>>) -> std::borrow::Cow<'s, str> {
+    remove_empty_segments(remove_illegal_characters(s))
+}
+
+#[cfg(all(test, feature = "semver"))]
+#[test]
+fn test_sanitize_pre_release() {
+    assert_eq!(
+        "a-b.0.1010.-001",
+        &sanitize_pre_release("a+b.000..01010...?001..")
+    );
+}
+
+#[cfg(all(test, feature = "semver"))]
+#[test]
+fn test_sanitize_build() {
+    assert_eq!(
+        "a-b.000.01010.-001",
+        &sanitize_build("a+b.000..01010...?001..")
+    );
+}
+
+#[cfg(feature = "semver")]
+fn remove_illegal_characters<'s>(
+    s: impl Into<std::borrow::Cow<'s, str>>,
+) -> std::borrow::Cow<'s, str> {
+    fn illegal_char(c: char) -> bool {
+        !matches!(c, 'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '.')
+    }
+    let s = s.into();
+    if s.contains(illegal_char) {
+        s.replace(illegal_char, "-").into()
+    } else {
+        s.into()
+    }
+}
+
+#[cfg(all(test, feature = "semver"))]
+#[test]
+fn test_remove_illegal_characters() {
+    assert_eq!("a-b", &remove_illegal_characters("a+b"));
+    assert_eq!("a-b", &remove_illegal_characters("a?b"));
+    assert_eq!("a-b", &remove_illegal_characters("a*b"));
+    assert_eq!("a-b", &remove_illegal_characters("a!b"));
+    assert_eq!("a-b", &remove_illegal_characters("a🙈b"));
+}
+
+#[cfg(feature = "semver")]
+fn remove_leading_zeroes<'s>(s: impl Into<std::borrow::Cow<'s, str>>) -> std::borrow::Cow<'s, str> {
+    fn illegal_zero(s: &str) -> bool {
+        s.len() > 1 && s.starts_with('0') && s.bytes().all(|b| b.is_ascii_digit())
+    }
+    let mut s = s.into();
+    if s.split('.').any(illegal_zero) {
+        let st: &mut String = s.to_mut();
+        let mut start = 0;
+        while start < st.len() {
+            let mut end = match st[start..].find('.') {
+                Some(end) => end + start,
+                None => st.len(),
+            };
+
+            if illegal_zero(&st[start..end]) {
+                match st[start..end].find(|c| c > '0') {
+                    Some(leading_zeroes) => {
+                        let _ = st.drain(start..start + leading_zeroes);
+                        end -= leading_zeroes;
+                    }
+                    None => {
+                        st.replace_range(start..end, "0");
+                        end = start + 1;
+                    }
+                }
+            }
+            start = end + 1;
+        }
+    }
+
+    s
+}
+
+#[cfg(all(test, feature = "semver"))]
+#[test]
+fn test_remove_leading_zeroes() {
+    assert_eq!("0", &remove_leading_zeroes("0"));
+    assert_eq!("0", &remove_leading_zeroes("000000000"));
+    assert_eq!("1", &remove_leading_zeroes("1"));
+    assert_eq!("1", &remove_leading_zeroes("01"));
+    assert_eq!("1", &remove_leading_zeroes("0001"));
+    assert_eq!("101", &remove_leading_zeroes("101"));
+    assert_eq!("101", &remove_leading_zeroes("0101"));
+    assert_eq!("101", &remove_leading_zeroes("000101"));
+    assert_eq!("0a", &remove_leading_zeroes("0a"));
+    assert_eq!("00a", &remove_leading_zeroes("00a"));
+    assert_eq!("0.0.0", &remove_leading_zeroes("0.0.0"));
+    assert_eq!("0.0.0", &remove_leading_zeroes("0.0000.0"));
+    assert_eq!("0.11.0", &remove_leading_zeroes("0.0011.0"));
+    assert_eq!("0.11.101", &remove_leading_zeroes("0.0011.0101"));
+}
+
+#[cfg(feature = "semver")]
+fn remove_empty_segments<'s>(s: impl Into<std::borrow::Cow<'s, str>>) -> std::borrow::Cow<'s, str> {
+    let mut s = s.into();
+
+    if !s.is_empty() && s.split('.').any(str::is_empty) {
+        let start = match s.find(|c| c != '.') {
+            Some(start) => start,
+            None => {
+                s.to_mut().clear();
+                return s;
+            }
+        };
+        let mut end = match s.rfind(|c| c != '.') {
+            Some(end) => end + 1,
+            None => {
+                s.to_mut().clear();
+                return s;
+            }
+        };
+
+        let st: &mut String = s.to_mut();
+        if start > 0 {
+            let _ = st.drain(..start);
+            end -= start;
+        }
+        if end < st.len() {
+            let _ = st.drain(end..);
+        }
+
+        let mut pos = 0;
+        while pos < st.len() {
+            let next = match st[pos..].find('.') {
+                Some(next) => next + pos,
+                None => st.len(),
+            };
+
+            if next == pos {
+                let _ = st.remove(pos);
+            } else {
+                pos = next + 1;
+            }
+        }
+    }
+
+    s
+}
+
+#[cfg(all(test, feature = "semver"))]
+#[test]
+fn test_remove_empty_segments() {
+    assert_eq!("123", &remove_empty_segments("123"));
+    assert_eq!("123", &remove_empty_segments(".123"));
+    assert_eq!("123", &remove_empty_segments("..123"));
+    assert_eq!("123", &remove_empty_segments("....123"));
+    assert_eq!("abc.123", &remove_empty_segments("abc.123"));
+    assert_eq!("abc.123", &remove_empty_segments("abc..123"));
+    assert_eq!("abc.123", &remove_empty_segments("abc...123"));
+    assert_eq!("abc.123", &remove_empty_segments("abc.....123"));
+    assert_eq!("123", &remove_empty_segments("123."));
+    assert_eq!("123", &remove_empty_segments("123.."));
+    assert_eq!("123", &remove_empty_segments("123...."));
+    assert_eq!("abc.123", &remove_empty_segments("abc.123."));
+    assert_eq!("abc.123", &remove_empty_segments("abc.123.."));
+    assert_eq!("abc.123", &remove_empty_segments("abc.123...."));
+    assert_eq!("", &remove_empty_segments("."));
+    assert_eq!("", &remove_empty_segments(".."));
+    assert_eq!("", &remove_empty_segments("...."));
+}
+
+#[cfg(any(test, feature = "semver011"))]
+fn try_num_semver011(s: &str) -> semver011::Identifier {
+    try_num(s).map_err(String::from).map_or_else(
+        semver011::Identifier::AlphaNumeric,
+        semver011::Identifier::Numeric,
+    )
+}
+
+#[cfg(feature = "semver010")]
+fn try_num_semver010(s: &str) -> semver010::Identifier {
+    try_num(s).map_err(String::from).map_or_else(
+        semver010::Identifier::AlphaNumeric,
+        semver010::Identifier::Numeric,
+    )
+}
+
+#[cfg(any(test, feature = "semver011", feature = "semver010"))]
+fn try_num(s: &str) -> Result<u64, &str> {
+    match s.parse::<u64>() {
+        Ok(num) if !s.starts_with('0') || s == "0" => Ok(num),
+        _ => Err(s),
+    }
+}
+
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 struct Span {
     start: usize,
@@ -706,16 +936,13 @@ macro_rules! accepts {
                         });
                     }
                 },
-                Accept::Minor => {
+                Accept::Minor | Accept::MinorAtEnd => {
                     let segment = &$input[$start..$index];
                     match segment.parse::<u64>() {
                         Ok(num) => $v.set_minor(num),
-                        _ => {
-                            $v.add_pre_release(segment);
-                            if $new_state < State::ExpectPre {
-                                $new_state = State::ExpectPre;
-                            }
-                        }
+                        _ if $op == Accept::MinorAtEnd => $v.add_pre_release(segment),
+                        _ if $new_state < State::ParsePre => $new_state = State::ParsePre,
+                        _ => {}
                     }
                 }
                 #[cfg(feature = "strict")]
@@ -729,16 +956,13 @@ macro_rules! accepts {
                         });
                     }
                 },
-                Accept::Patch => {
+                Accept::Patch | Accept::PatchAtEnd => {
                     let segment = &$input[$start..$index];
                     match segment.parse::<u64>() {
                         Ok(num) => $v.set_patch(num),
-                        _ => {
-                            $v.add_pre_release(segment);
-                            if $new_state < State::ExpectPre {
-                                $new_state = State::ExpectPre;
-                            }
-                        }
+                        _ if $op == Accept::PatchAtEnd => $v.add_pre_release(segment),
+                        _ if $new_state < State::ParsePre => $new_state = State::ParsePre,
+                        _ => {}
                     }
                 }
                 #[cfg(feature = "strict")]
@@ -752,16 +976,13 @@ macro_rules! accepts {
                         });
                     }
                 },
-                Accept::Add => {
+                Accept::Add | Accept::AddAtEnd => {
                     let segment = &$input[$start..$index];
                     match segment.parse::<u64>() {
                         Ok(num) => $v.add_additional(num),
-                        _ => {
-                            $v.add_pre_release(segment);
-                            if $new_state < State::ExpectPre {
-                                $new_state = State::ExpectPre;
-                            }
-                        }
+                        _ if $op == Accept::AddAtEnd => $v.add_pre_release(segment),
+                        _ if $new_state < State::ParsePre => $new_state = State::ParsePre,
+                        _ => {}
                     }
                 }
                 Accept::Pre => {
@@ -1093,12 +1314,15 @@ enum Accept {
     SaveStart,
     Major,
     Minor,
+    MinorAtEnd,
     #[cfg(feature = "strict")]
     RequireMinor,
     Patch,
+    PatchAtEnd,
     #[cfg(feature = "strict")]
     RequirePatch,
     Add,
+    AddAtEnd,
     Pre,
     Build,
     ErrorMissing,
@@ -1233,21 +1457,24 @@ const fn dfa() -> Dfa {
                                                    EndOfInput @ ExpectMinor  -> ErrorMissing,
                 Whitespace | Dot | Hyphen | Plus | Unexpected @ ExpectMinor  -> ErrorUnexpected,
 
-                Whitespace | EndOfInput | Dot | Hyphen | Plus @ ParseMinor   -> Minor,
+                             Whitespace | Dot | Hyphen | Plus @ ParseMinor   -> Minor,
+                                                   EndOfInput @ ParseMinor   -> MinorAtEnd,
                                                    Unexpected @ ParseMinor   -> ErrorUnexpected,
 
                                            Number | V | Alpha @ ExpectPatch  -> SaveStart,
                                                    EndOfInput @ ExpectPatch  -> ErrorMissing,
                 Whitespace | Dot | Hyphen | Plus | Unexpected @ ExpectPatch  -> ErrorUnexpected,
 
-                Whitespace | EndOfInput | Dot | Hyphen | Plus @ ParsePatch   -> Patch,
+                             Whitespace | Dot | Hyphen | Plus @ ParsePatch   -> Patch,
+                                                   EndOfInput @ ParsePatch   -> PatchAtEnd,
                                                    Unexpected @ ParsePatch   -> ErrorUnexpected,
 
                                            Number | V | Alpha @ ExpectAdd    -> SaveStart,
                                                    EndOfInput @ ExpectAdd    -> ErrorMissing,
                 Whitespace | Dot | Hyphen | Plus | Unexpected @ ExpectAdd    -> ErrorUnexpected,
 
-                Whitespace | EndOfInput | Dot | Hyphen | Plus @ ParseAdd     -> Add,
+                             Whitespace | Dot | Hyphen | Plus @ ParseAdd     -> Add,
+                                                   EndOfInput @ ParseAdd     -> AddAtEnd,
                                                    Unexpected @ ParseAdd     -> ErrorUnexpected,
 
                                            Number | V | Alpha @ ExpectPre    -> SaveStart,
@@ -1300,78 +1527,60 @@ mod tests {
     #[cfg_attr(feature = "semver", test)]
     fn test_parse_semver() {
         let actual = parse::<Version>("   v1.2.3.4.5-Foo-bar+baz-qux  ").ok();
-        let expected = semver::Version::parse("1.2.3-Foo.bar+4.5.baz.qux").ok();
+        let expected = semver::Version::parse("1.2.3-Foo-bar+4.5.baz-qux").ok();
         assert_eq!(actual, expected)
     }
 
-    #[cfg(feature = "semver10")]
-    #[cfg_attr(feature = "semver10", test)]
-    fn test_parse_semver10() {
-        let actual = parse::<semver10::Version>("   v1.2.3.4.5-Foo-bar+baz-qux  ").ok();
-        let expected = semver10::Version::parse("1.2.3-Foo.bar+4.5.baz.qux").ok();
+    #[cfg(feature = "semver011")]
+    #[cfg_attr(feature = "semver011", test)]
+    fn test_parse_semver011() {
+        let actual = parse::<semver011::Version>("   v1.2.3.4.5-Foo-bar+baz-qux  ").ok();
+        let expected = semver011::Version::parse("1.2.3-Foo.bar+4.5.baz.qux").ok();
         assert_eq!(actual, expected)
     }
 
-    mod semver_helpers {
-        pub(super) use semver::{Identifier, Version};
-
-        pub(super) trait IntoIdentifier {
-            fn into_itentifier(self) -> Identifier;
-        }
-
-        impl IntoIdentifier for &str {
-            fn into_itentifier(self) -> Identifier {
-                Identifier::AlphaNumeric(self.into())
-            }
-        }
-
-        impl IntoIdentifier for u64 {
-            fn into_itentifier(self) -> Identifier {
-                Identifier::Numeric(self)
-            }
-        }
+    #[cfg(feature = "semver010")]
+    #[cfg_attr(feature = "semver010", test)]
+    fn test_parse_semver010() {
+        let actual = parse::<semver010::Version>("   v1.2.3.4.5-Foo-bar+baz-qux  ").ok();
+        let expected = semver010::Version::parse("1.2.3-Foo.bar+4.5.baz.qux").ok();
+        assert_eq!(actual, expected)
     }
 
-    use semver_helpers::*;
+    use semver::Version;
 
     macro_rules! vers {
         ($major:literal . $minor:literal . $patch:literal) => {
-            Version {
+            ::semver::Version::new($major, $minor, $patch)
+        };
+
+        ($major:literal . $minor:literal . $patch:literal - $pre:literal ) => {
+            ::semver::Version {
                 major: $major,
                 minor: $minor,
                 patch: $patch,
-                pre: Vec::new(),
-                build: Vec::new(),
+                pre: ::semver::Prerelease::new(&sanitize_pre_release($pre)).unwrap(),
+                build: ::semver::BuildMetadata::EMPTY,
             }
         };
 
-        ($major:literal . $minor:literal . $patch:literal - $( $pre:literal )-+ ) => {
-            Version {
+        ($major:literal . $minor:literal . $patch:literal + $build:literal ) => {
+            ::semver::Version {
                 major: $major,
                 minor: $minor,
                 patch: $patch,
-                pre: vec![ $( $pre.into_itentifier(), )* ],
-                build: Vec::new(),
+                pre: ::semver::Prerelease::EMPTY,
+                build: ::semver::BuildMetadata::new(&sanitize_build($build)).unwrap(),
             }
         };
 
-        ($major:literal . $minor:literal . $patch:literal + $( $build:literal )-+ ) => {
-            Version {
+        ($major:literal . $minor:literal . $patch:literal - $pre:literal + $build:literal ) => {
+            ::semver::Version {
                 major: $major,
                 minor: $minor,
                 patch: $patch,
-                pre: Vec::new(),
-                build: vec![ $( $build.into_itentifier(), )* ],
-            }
-        };
-
-        ($major:literal . $minor:literal . $patch:literal - $( $pre:literal )-+ + $( $build:literal )-+ ) => {
-            Version {
-                major: $major,
-                minor: $minor,
-                patch: $patch,
-                pre: vec![ $( $pre.into_itentifier(), )* ],
-                build: vec![ $( $build.into_itentifier(), )* ],
+                pre: ::semver::Prerelease::new(&sanitize_pre_release($pre)).unwrap(),
+                build: ::semver::BuildMetadata::new(&sanitize_build($build)).unwrap(),
             }
         };
     }
@@ -1386,54 +1595,54 @@ mod tests {
 
     #[test_case("1.2.3-alpha1" => Ok(vers!(1 . 2 . 3 - "alpha1")))]
     #[test_case("  1.2.3-alpha2  " => Ok(vers!(1 . 2 . 3 - "alpha2")))]
-    #[test_case("3.1.0-M13-beta3" => Ok(vers!(3 . 1 . 0 - "M13" - "beta3")))]
-    #[test_case("1.2.3-alpha01.drop02" => Ok(vers!(1 . 2 . 3 - "alpha01" - "drop02")))]
+    #[test_case("3.1.0-M13-beta3" => Ok(vers!(3 . 1 . 0 - "M13-beta3")))]
+    #[test_case("1.2.3-alpha01.drop02" => Ok(vers!(1 . 2 . 3 - "alpha01.drop02")))]
     #[test_case("1.4.1-alpha01" => Ok(vers!(1 . 4 . 1 - "alpha01")))]
     #[test_case("1.4-alpha02" => Ok(vers!(1 . 4 . 0 - "alpha02")))]
     #[test_case("1-alpha03" => Ok(vers!(1 . 0 . 0 - "alpha03")))]
     #[test_case("1.9.3.RC1" => Ok(vers!(1 . 9 . 3 - "RC1")))]
     #[test_case("1.9.RC2" => Ok(vers!(1 . 9 . 0 - "RC2")))]
     #[test_case("1.RC3" => Ok(vers!(1 . 0 . 0 - "RC3")))]
-    #[test_case("1.3.3-7" => Ok(vers!(1 . 3 . 3 - 7)))]
-    #[test_case("5.9.0-202009080501-r" => Ok(vers!(5 . 9 . 0 - 202009080501 - "r")))]
-    #[test_case("1.2.3.RC.4" => Ok(vers!(1 . 2 . 3 - "RC" - 4)))]
+    #[test_case("1.3.3-7" => Ok(vers!(1 . 3 . 3 - "7")))]
+    #[test_case("5.9.0-202009080501-r" => Ok(vers!(5 . 9 . 0 - "202009080501-r")))]
+    #[test_case("1.2.3.RC.4" => Ok(vers!(1 . 2 . 3 - "RC.4")))]
     fn test_pre_release(input: &str) -> Result<Version, Error<'_>> {
         parse::<Version>(input)
     }
 
     #[test_case("1.2.3+build1" => Ok(vers!(1 . 2 . 3 + "build1")))]
     #[test_case("  1.2.3+build2  " => Ok(vers!(1 . 2 . 3 + "build2")))]
-    #[test_case("3.1.0+build3-r021" => Ok(vers!(3 . 1 . 0 + "build3" - "r021")))]
-    #[test_case("1.2.3+build01.drop02" => Ok(vers!(1 . 2 . 3 + "build01" - "drop02")))]
+    #[test_case("3.1.0+build3-r021" => Ok(vers!(3 . 1 . 0 + "build3-r021")))]
+    #[test_case("1.2.3+build01.drop02" => Ok(vers!(1 . 2 . 3 + "build01.drop02")))]
     #[test_case("1.4.1+build01" => Ok(vers!(1 . 4 . 1 + "build01")))]
     #[test_case("1.4+build02" => Ok(vers!(1 . 4 . 0 + "build02")))]
     #[test_case("1+build03" => Ok(vers!(1 . 0 . 0 + "build03")))]
-    #[test_case("7.2.0+28-2f9fb552" => Ok(vers!(7 . 2 . 0 + 28 -  "2f9fb552" )))]
-    #[test_case("1.3.3.7" => Ok(vers!(1 . 3 . 3 + 7)))]
-    #[test_case("5.9.0.202009080501-r" => Ok(vers!(5 . 9 . 0 + 202009080501 - "r")))]
+    #[test_case("7.2.0+28-2f9fb552" => Ok(vers!(7 . 2 . 0 + "28-2f9fb552" )))]
+    #[test_case("1.3.3.7" => Ok(vers!(1 . 3 . 3 + "7")))]
+    #[test_case("5.9.0.202009080501-r" => Ok(vers!(5 . 9 . 0 + "202009080501.r")))]
     fn test_build(input: &str) -> Result<Version, Error<'_>> {
         parse::<Version>(input)
     }
 
-    #[test_case("1.3.3.7" => Ok(vers!(1 . 3 . 3 + 7)))]
-    #[test_case("1.3.3.0" => Ok(vers!(1 . 3 . 3 + 0)))]
-    #[test_case("1.3.3.00" => Ok(vers!(1 . 3 . 3 + 0)))]
-    #[test_case("1.3.3.07" => Ok(vers!(1 . 3 . 3 + 7)))]
-    #[test_case("1.3.3.7.4.2" => Ok(vers!(1 . 3 . 3 + 7 - 4 - 2)))]
-    #[test_case("1.3.3.7.04.02" => Ok(vers!(1 . 3 . 3 + 7 - 4 - 2)))]
+    #[test_case("1.3.3.7" => Ok(vers!(1 . 3 . 3 + "7")))]
+    #[test_case("1.3.3.0" => Ok(vers!(1 . 3 . 3 + "0")))]
+    #[test_case("1.3.3.00" => Ok(vers!(1 . 3 . 3 + "0")))]
+    #[test_case("1.3.3.07" => Ok(vers!(1 . 3 . 3 + "7")))]
+    #[test_case("1.3.3.7.4.2" => Ok(vers!(1 . 3 . 3 + "7.4.2")))]
+    #[test_case("1.3.3.7.04.02" => Ok(vers!(1 . 3 . 3 + "7.4.2")))]
     #[test_case("1.3.3.9876543210987654321098765432109876543210" => Ok(vers!(1 . 3 . 3 - "9876543210987654321098765432109876543210")))]
-    #[test_case("1.3.3.9876543210987654321098765432109876543210.4.2" => Ok(vers!(1 . 3 . 3 - "9876543210987654321098765432109876543210" - 4 - 2)))]
-    #[test_case("1.3.3.7.foo" => Ok(vers!(1 . 3 . 3 - "foo" + 7)))]
-    #[test_case("1.3.3.7-bar" => Ok(vers!(1 . 3 . 3 - "bar" + 7)))]
-    #[test_case("1.3.3.7+baz" => Ok(vers!(1 . 3 . 3 + 7 - "baz")))]
+    #[test_case("1.3.3.9876543210987654321098765432109876543210.4.2" => Ok(vers!(1 . 3 . 3 - "9876543210987654321098765432109876543210.4.2")))]
+    #[test_case("1.3.3.7.foo" => Ok(vers!(1 . 3 . 3 - "foo" + "7")))]
+    #[test_case("1.3.3.7-bar" => Ok(vers!(1 . 3 . 3 - "bar" + "7")))]
+    #[test_case("1.3.3.7+baz" => Ok(vers!(1 . 3 . 3 + "7.baz")))]
     fn test_additional_numbers(input: &str) -> Result<Version, Error<'_>> {
         parse::<Version>(input)
     }
 
     #[test_case("1.2.3-alpha1+build5" => Ok(vers!(1 . 2 . 3 - "alpha1" + "build5" )))]
     #[test_case("   1.2.3-alpha2+build6   " => Ok(vers!(1 . 2 . 3 - "alpha2" + "build6" )))]
-    #[test_case("1.2.3-1.alpha1.9+build5.7.3aedf  " => Ok(vers!(1 . 2 . 3 - 1 - "alpha1" - 9 + "build5" - 7 - "3aedf" )))]
-    #[test_case("0.4.0-beta.1+0851523" => Ok(vers!(0 . 4 . 0 - "beta" - 1 + "0851523" )))]
+    #[test_case("1.2.3-1.alpha1.9+build5.7.3aedf  " => Ok(vers!(1 . 2 . 3 - "1.alpha1.9" + "build5.7.3aedf" )))]
+    #[test_case("0.4.0-beta.1+0851523" => Ok(vers!(0 . 4 . 0 - "beta.1" + "0851523" )))]
     fn test_combined(input: &str) -> Result<Version, Error<'_>> {
         parse::<Version>(input)
     }
@@ -1480,10 +1689,10 @@ mod tests {
     #[test_case("1" => Ok(vers!(1 . 0 . 0)))]
     #[test_case("01" => Ok(vers!(1 . 0 . 0)))]
     #[test_case("00001" => Ok(vers!(1 . 0 . 0)))]
-    #[test_case("1.2.3-1" => Ok(vers!(1 . 2 . 3 - 1)))]
+    #[test_case("1.2.3-1" => Ok(vers!(1 . 2 . 3 - "1")))]
     #[test_case("1.2.3-01" => Ok(vers!(1 . 2 . 3 - "01")))]
     #[test_case("1.2.3-0001" => Ok(vers!(1 . 2 . 3 - "0001")))]
-    #[test_case("2.3.4+1" => Ok(vers!(2 . 3 . 4 + 1)))]
+    #[test_case("2.3.4+1" => Ok(vers!(2 . 3 . 4 + "1")))]
     #[test_case("2.3.4+01" => Ok(vers!(2 . 3 . 4 + "01")))]
     #[test_case("2.3.4+0001" => Ok(vers!(2 . 3 . 4 + "0001")))]
     fn test_leading_zeroes(input: &str) -> Result<Version, Error<'_>> {
@@ -1493,11 +1702,11 @@ mod tests {
     #[test_case("v1" => Ok(vers!(1 . 0 . 0)))]
     #[test_case("  v2  " => Ok(vers!(2 . 0 . 0)))]
     #[test_case("v1.2.3" => Ok(vers!(1 . 2 . 3)))]
-    #[test_case("v1.3.3-7" => Ok(vers!(1 . 3 . 3 - 7)))]
+    #[test_case("v1.3.3-7" => Ok(vers!(1 . 3 . 3 - "7")))]
     #[test_case("V3" => Ok(vers!(3 . 0 . 0)))]
     #[test_case("  V5  " => Ok(vers!(5 . 0 . 0)))]
     #[test_case("V2.3.4" => Ok(vers!(2 . 3 . 4)))]
-    #[test_case("V4.2.4-2" => Ok(vers!(4 . 2 . 4 - 2)))]
+    #[test_case("V4.2.4-2" => Ok(vers!(4 . 2 . 4 - "2")))]
     fn test_leading_v(input: &str) -> Result<Version, Error<'_>> {
         parse::<Version>(input)
     }
@@ -1511,18 +1720,18 @@ mod tests {
     #[test_case("1.2.3.v4" => Ok(vers!(1 . 2 . 3 - "v4")))]
     #[test_case("1.2.3-v5" => Ok(vers!(1 . 2 . 3 - "v5")))]
     #[test_case("1.2.3+v6" => Ok(vers!(1 . 2 . 3 + "v6")))]
-    #[test_case("1.2.3-alpha.v4" => Ok(vers!(1 . 2 . 3 - "alpha" - "v4")))]
-    #[test_case("1.2.3-alpha-v5" => Ok(vers!(1 . 2 . 3 - "alpha" - "v5")))]
+    #[test_case("1.2.3-alpha.v4" => Ok(vers!(1 . 2 . 3 - "alpha.v4")))]
+    #[test_case("1.2.3-alpha-v5" => Ok(vers!(1 . 2 . 3 - "alpha-v5")))]
     #[test_case("1.2.3-alpha+v6" => Ok(vers!(1 . 2 . 3 - "alpha" + "v6")))]
-    #[test_case("1.2.3+build.v4" => Ok(vers!(1 . 2 . 3 + "build" - "v4")))]
-    #[test_case("1.2.3+build-v5" => Ok(vers!(1 . 2 . 3 + "build" - "v5")))]
-    #[test_case("1.2.3-alpha.v6+build.v7" => Ok(vers!(1 . 2 . 3 - "alpha" - "v6" + "build" - "v7")))]
+    #[test_case("1.2.3+build.v4" => Ok(vers!(1 . 2 . 3 + "build.v4")))]
+    #[test_case("1.2.3+build-v5" => Ok(vers!(1 . 2 . 3 + "build-v5")))]
+    #[test_case("1.2.3-alpha.v6+build.v7" => Ok(vers!(1 . 2 . 3 - "alpha.v6" + "build.v7")))]
     fn test_v_num_in_the_middle(input: &str) -> Result<Version, Error<'_>> {
         parse::<Version>(input)
     }
 
     #[test_case("1.9876543210987654321098765432109876543210" => Ok(vers!(1 . 0 . 0 - "9876543210987654321098765432109876543210")))]
-    #[test_case("1.9876543210987654321098765432109876543210.2" => Ok(vers!(1 . 0 . 0 - "9876543210987654321098765432109876543210" - 2)))]
+    #[test_case("1.9876543210987654321098765432109876543210.2" => Ok(vers!(1 . 0 . 0 - "9876543210987654321098765432109876543210.2")))]
     #[test_case("1.2.9876543210987654321098765432109876543210" => Ok(vers!(1 . 2 . 0 - "9876543210987654321098765432109876543210")))]
     #[test_case("1.2.3.9876543210987654321098765432109876543210" => Ok(vers!(1 . 2 . 3 - "9876543210987654321098765432109876543210")))]
     #[test_case("1.2.3-9876543210987654321098765432109876543211" => Ok(vers!(1 . 2 . 3 - "9876543210987654321098765432109876543211")))]
@@ -1534,9 +1743,9 @@ mod tests {
     #[test_case("1,2" => Ok((vers!(1 . 0 . 0 ), ",2")))]
     #[test_case("2, 3" => Ok((vers!(2 . 0 . 0), ", 3")))]
     #[test_case("3 , 4" => Ok((vers!(3 . 0 . 0), ", 4")))]
-    #[test_case("1.2.3-2.3.4" => Ok((vers!(1 . 2 . 3 - 2 - 3 - 4), "")))]
+    #[test_case("1.2.3-2.3.4" => Ok((vers!(1 . 2 . 3 - "2.3.4"), "")))]
     #[test_case("2.3.4 - 4.5.6" => Ok((vers!(2 . 3 . 4), "- 4.5.6")))]
-    #[test_case("1.x.3 || 3.4.5" => Ok((vers!(1 . 0 . 0 - "x" - 3), "|| 3.4.5")))]
+    #[test_case("1.x.3 || 3.4.5" => Ok((vers!(1 . 0 . 0 - "x.3"), "|| 3.4.5")))]
     #[test_case("1.2,a" => Ok((vers!(1 . 2 . 0), ",a")))]
     #[test_case("1.2.3,b" => Ok((vers!(1 . 2 . 3), ",b")))]
     #[test_case("1.2a,c" => Ok((vers!(1 . 0 . 0 - "2a"), ",c")))]
@@ -1678,8 +1887,8 @@ mod tests {
     #[test_case("1.2. " => Ok((vers!(1 . 2 . 0), ". ")); "whitespace after minor")]
     #[test_case("1.2.3-" => Ok((vers!(1 . 2 . 3), "-")); "eoi after hyphen")]
     #[test_case("1.2.3- " => Ok((vers!(1 . 2 . 3), "- ")); "whitespace after hyphen")]
-    #[test_case("1.2.3.4-" => Ok((vers!(1 . 2 . 3 + 4), "-")); "eoi after additional")]
-    #[test_case("1.2.3.4- " => Ok((vers!(1 . 2 . 3 + 4), "- ")); "whitespace after additional")]
+    #[test_case("1.2.3.4-" => Ok((vers!(1 . 2 . 3 + "4"), "-")); "eoi after additional")]
+    #[test_case("1.2.3.4- " => Ok((vers!(1 . 2 . 3 + "4"), "- ")); "whitespace after additional")]
     #[test_case("1.2.3+" => Ok((vers!(1 . 2 . 3), "+")); "eoi after plus")]
     #[test_case("1.2.3+ " => Ok((vers!(1 . 2 . 3), "+ ")); "whitespace after plus")]
     #[test_case("1.2.3-." => Ok((vers!(1 . 2 . 3), "-.")); "pre release trailing dot")]
@@ -1714,14 +1923,16 @@ mod tests {
         assert!(is_release_identifier(v));
     }
 
-    #[test_case("1.2.3" => parse::<Version>("1.2.3.Final"); "dot final")]
-    #[test_case("1.2.3" => parse::<Version>("1.2.3.Release"); "dot release")]
-    #[test_case("1.2.3" => parse::<Version>("1.2.3-Final"); "hyphen final")]
-    #[test_case("1.2.3" => parse::<Version>("1.2.3-Release"); "hyphen release")]
-    #[test_case("1.2.3" => parse::<Version>("1.2.3+Final"); "plus final")]
-    #[test_case("1.2.3" => parse::<Version>("1.2.3+Release"); "plus release")]
-    fn test_release_cmp(v: &str) -> Result<Version, Error<'_>> {
-        parse::<Version>(v)
+    #[test_case("=1.2.3", parse::<Version>("1.2.3.Final"); "dot final")]
+    #[test_case("=1.2.3", parse::<Version>("1.2.3.Release"); "dot release")]
+    #[test_case("=1.2.3", parse::<Version>("1.2.3-Final"); "hyphen final")]
+    #[test_case("=1.2.3", parse::<Version>("1.2.3-Release"); "hyphen release")]
+    #[test_case("=1.2.3", parse::<Version>("1.2.3+Final"); "plus final")]
+    #[test_case("=1.2.3", parse::<Version>("1.2.3+Release"); "plus release")]
+    fn test_release_cmp(v: &str, eqv: Result<Version, Error<'_>>) {
+        // semver 1.x no longer ignore the build when comparing versions
+        // we check that the version compared against `=1.2.3`
+        assert!(semver::VersionReq::parse(v).unwrap().matches(&eqv.unwrap()));
     }
 
     #[test_case(" ", ' '; "space")]
