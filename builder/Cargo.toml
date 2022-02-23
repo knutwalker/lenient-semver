@@ -21,7 +21,7 @@ default = ["semver"]
 
 [dev-dependencies]
 semver = "1"
-test-case = "1"
+test-case = "2"
 
 [package.metadata.docs.rs]
 features = ["semver"]

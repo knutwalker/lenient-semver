@@ -28,7 +28,7 @@ strict = []
 
 [dev-dependencies]
 semver_v100 = {version = "1", package = "semver" }
-test-case = "1"
+test-case = "2"
 
 [package.metadata.docs.rs]
 features = ["semver"]
