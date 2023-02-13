@@ -21,4 +21,4 @@ semver010 = { version = "0.10", package = "semver" }
 semver_rs = "0.1"
 
 [dev-dependencies]
-test-case = "1"
+test-case = "3"
